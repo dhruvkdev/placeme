@@ -1,0 +1,35 @@
+# dependencies
+backend/node_modules/
+frontend/node_modules/
+
+# environment variables
+backend/.env
+backend/.env.local
+backend/.env.*.local
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# build output
+backend/dist/
+backend/build/
+frontend/dist/
+frontend/build/
+
+# logs
+backend/npm-debug.log*
+backend/yarn-debug.log*
+backend/yarn-error.log*
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# drizzle (only if purely generated and not migrations)
+backend/drizzle/
