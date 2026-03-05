@@ -3,7 +3,6 @@ import ProblemStatement from "@/components/ProblemStatement";
 import Flowchart from "@/components/Flowchart";
 import Features from "@/components/Features";
 import Testimonials from "@/components/Testimonials";
-import Pricing from "@/components/Pricing";
 import FAQ from "@/components/FAQ";
 
 export default function Home() {

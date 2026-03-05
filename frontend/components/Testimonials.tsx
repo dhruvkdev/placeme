@@ -101,59 +101,59 @@ const TestimonialCarousel = () => {
 
 
       {/* --- CONTENT CONTAINER --- */}
-      <div className="relative w-full max-w-[85rem] flex flex-col items-center justify-center py-32 px-6 md:px-16 z-10">
+      <div className="relative w-full max-w-[85rem] flex flex-col items-center justify-center py-20 md:py-32 px-4 md:px-16 z-10">
         
         {/* Soft Radial Gradient Background - Constrained to the center */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-0">
-          <div className="w-[600px] h-[350px] bg-cyan-100/50 rounded-full blur-[60px]"></div>
+          <div className="w-[300px] h-[300px] md:w-[600px] md:h-[350px] bg-cyan-100/50 rounded-full blur-[50px] md:blur-[60px]"></div>
         </div>
 
         {/* Quote Content Container */}
-        <div className="relative w-full max-w-3xl px-8 text-center z-10">
+        <div className="relative w-full max-w-3xl px-2 md:px-8 text-left md:text-center z-10">
           
           {/* Top Left Quote Icon */}
-          <div className="absolute -top-4 -left-4 text-[#e2ecef] pointer-events-none">
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <div className="absolute -top-6 -left-2 md:-top-4 md:-left-4 text-[#e2ecef] pointer-events-none">
+            <svg className="w-16 h-16 md:w-[80px] md:h-[80px]" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
               <path d="M14.017 18L14.017 10.609C14.017 4.905 17.748 1.039 23 0L23.995 2.151C21.563 3.068 20 5.789 20 8H24V18H14.017ZM0 18V10.609C0 4.905 3.748 1.038 9 0L9.996 2.151C7.563 3.068 6 5.789 6 8H9.983L9.983 18L0 18Z" />
             </svg>
           </div>
 
           {/* Testimonial Text */}
-          <p className="text-[#2d3748] text-lg md:text-[1.15rem] leading-[1.7] font-medium relative z-10 px-6">
+          <p className="text-[#2d3748] text-[15px] sm:text-lg md:text-[1.15rem] leading-[1.7] font-medium relative z-10 px-2 md:px-6">
             {current.quote}
           </p>
 
           {/* Bottom Right Quote Icon */}
-          <div className="absolute -bottom-8 -right-4 text-[#e2ecef] pointer-events-none rotate-180">
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <div className="absolute -bottom-10 right-0 md:-bottom-8 md:-right-4 text-[#e2ecef] pointer-events-none rotate-180">
+            <svg className="w-16 h-16 md:w-[80px] md:h-[80px]" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
               <path d="M14.017 18L14.017 10.609C14.017 4.905 17.748 1.039 23 0L23.995 2.151C21.563 3.068 20 5.789 20 8H24V18H14.017ZM0 18V10.609C0 4.905 3.748 1.038 9 0L9.996 2.151C7.563 3.068 6 5.789 6 8H9.983L9.983 18L0 18Z" />
             </svg>
           </div>
         </div>
 
         {/* Author Block */}
-        <div className="flex items-center justify-center gap-6 mt-14 z-10">
+        <div className="flex items-center justify-start md:justify-center gap-4 md:gap-6 mt-10 md:mt-14 z-10 w-full md:w-auto px-4 md:px-0">
           {/* Company Logo placeholder */}
-          <div className={`flex items-center justify-center ${current.logoClass}`}>
+          <div className={`flex-shrink-0 flex items-center justify-center transform scale-75 md:scale-100 origin-left md:origin-center ${current.logoClass}`}>
              {current.logo}
           </div>
           
           {/* Author Details */}
           <div className="flex flex-col text-left">
-            <h4 className="text-[#659ebb] font-serif italic text-xl md:text-[1.3rem] tracking-wide">
+            <h4 className="text-[#659ebb] font-serif italic text-lg md:text-[1.3rem] tracking-wide">
               {current.name}
             </h4>
-            <p className="text-gray-800 text-[13px] font-semibold mt-[2px]">
+            <p className="text-gray-800 text-[11px] md:text-[13px] font-semibold mt-[2px]">
               {current.role}
             </p>
-            <p className="text-gray-800 text-[13px] font-semibold">
+            <p className="text-gray-800 text-[11px] md:text-[13px] font-semibold leading-tight md:leading-normal">
               {current.desc}
             </p>
           </div>
         </div>
 
         {/* Navigation Controls */}
-        <div className="flex items-center gap-6 mt-16 z-10">
+        <div className="flex items-center gap-4 md:gap-6 mt-12 md:mt-16 z-10">
           <button onClick={prevTestimonial} className="text-gray-400 hover:text-gray-800 transition-colors">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 18l-6-6 6-6" />
