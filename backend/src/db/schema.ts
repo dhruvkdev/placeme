@@ -168,9 +168,9 @@ export const applications = pgTable("applications", {
         .notNull(),
 
     appliedAt: timestamp("applied_at").defaultNow()
-}, (table: { jobId: any; studentId: any; }) => ({
-    uniqueApplication: unique().on(table.jobId, table.studentId)
-}));
+}, (table) => [
+    unique("unique_application").on(table.jobId, table.studentId)
+]);
 
 export const interviews = pgTable("interviews", {
     id: uuid("id").defaultRandom().primaryKey(),

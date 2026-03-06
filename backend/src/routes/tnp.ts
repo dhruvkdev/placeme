@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 
@@ -182,7 +182,7 @@ router.get('/students/pending', async (req: Request, res: Response): Promise<voi
  */
 router.post('/students/:studentId/verify', async (req: Request, res: Response): Promise<void> => {
     try {
-        const { studentId } = req.params;
+        const studentId = req.params.studentId as string;
 
         // Get T&P's college
         const [profile] = await db
@@ -252,7 +252,7 @@ router.post('/students/:studentId/verify', async (req: Request, res: Response): 
  */
 router.post('/students/:studentId/reject', async (req: Request, res: Response): Promise<void> => {
     try {
-        const { studentId } = req.params;
+        const studentId = req.params.studentId as string;
 
         // Get T&P's college
         const [profile] = await db
