@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { eq, and, gt } from 'drizzle-orm';
+import { eq, and, gt, desc } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { sendEmail } from '../utils/email.js';
@@ -382,6 +382,198 @@ router.put('/profile', authenticate, requireRole('STUDENT'), async (req: Request
         });
     } catch (err) {
         console.error('Update student profile error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /student/dashboard
+ * Returns overview metrics for the student.
+ */
+router.get('/dashboard', authenticate, requireRole('STUDENT'), async (req: Request, res: Response): Promise<void> => {
+    try {
+        const studentId = req.user!.id;
+
+        const [student] = await db
+            .select()
+            .from(schema.students)
+            .where(eq(schema.students.id, studentId))
+            .limit(1);
+
+        if (!student) {
+            res.status(404).json({ error: 'Student profile not found' });
+            return;
+        }
+
+        let profileCompleteness = 50;
+        if (student.cgpa) profileCompleteness += 20;
+        if (student.branch) profileCompleteness += 15;
+        if (student.graduationYear) profileCompleteness += 15;
+        if (student.state === 'VERIFIED') profileCompleteness = 100;
+
+        const appRows = await db
+            .select()
+            .from(schema.applications)
+            .where(eq(schema.applications.studentId, studentId));
+
+        const applicationCount = appRows.length;
+
+        const intRows = await db
+            .select()
+            .from(schema.interviews)
+            .innerJoin(schema.applications, eq(schema.interviews.applicationId, schema.applications.id))
+            .where(eq(schema.applications.studentId, studentId));
+
+        const interviewCount = intRows.length;
+
+        res.json({
+            stats: {
+                atsScore: 82, // Mocked for now
+                applications: applicationCount,
+                interviews: interviewCount,
+                profileCompleteness,
+            }
+        });
+    } catch (err) {
+        console.error('Dashboard error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /student/jobs
+ * Returns published jobs available for the student.
+ */
+router.get('/jobs', authenticate, requireRole('STUDENT'), async (req: Request, res: Response): Promise<void> => {
+    try {
+        const publishedJobs = await db
+            .select({
+                id: schema.jobs.id,
+                title: schema.jobs.title,
+                description: schema.jobs.description,
+                location: schema.jobs.location,
+                minCgpa: schema.jobs.minCgpa,
+                createdAt: schema.jobs.createdAt,
+                companyName: schema.companies.name,
+                companyWebsite: schema.companies.website,
+            })
+            .from(schema.jobs)
+            .innerJoin(schema.recruiters, eq(schema.jobs.recruiterId, schema.recruiters.id))
+            .innerJoin(schema.companies, eq(schema.recruiters.companyId, schema.companies.id))
+            .where(eq(schema.jobs.state, 'PUBLISHED'))
+            .orderBy(desc(schema.jobs.createdAt));
+
+        res.json({ jobs: publishedJobs });
+    } catch (err) {
+        console.error('Fetch jobs error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /student/jobs/:jobId/apply
+ * Apply for a specific job.
+ */
+router.post('/jobs/:jobId/apply', authenticate, requireRole('STUDENT'), async (req: Request, res: Response): Promise<void> => {
+    try {
+        const jobId = req.params.jobId as string;
+        const studentId = req.user!.id;
+
+        const [student] = await db
+            .select()
+            .from(schema.students)
+            .where(eq(schema.students.id, studentId))
+            .limit(1);
+
+        if (!student) {
+            res.status(404).json({ error: 'Student not found' });
+            return;
+        }
+
+        if (student.state !== 'VERIFIED') {
+            res.status(403).json({ error: 'Your profile must be verified to apply for jobs' });
+            return;
+        }
+
+        const [job] = await db
+            .select()
+            .from(schema.jobs)
+            .where(eq(schema.jobs.id, jobId))
+            .limit(1);
+
+        if (!job || job.state !== 'PUBLISHED') {
+            res.status(404).json({ error: 'Job not found or not published' });
+            return;
+        }
+
+        if (job.minCgpa && student.cgpa && parseFloat(student.cgpa) < parseFloat(job.minCgpa)) {
+            res.status(403).json({ error: `Requires minimum CGPA of ${job.minCgpa}` });
+            return;
+        }
+
+        const [existingApp] = await db
+            .select()
+            .from(schema.applications)
+            .where(and(eq(schema.applications.studentId, studentId), eq(schema.applications.jobId, jobId)))
+            .limit(1);
+
+        if (existingApp) {
+            res.status(409).json({ error: 'Already applied for this job' });
+            return;
+        }
+
+        const [application] = await db
+            .insert(schema.applications)
+            .values({
+                studentId,
+                jobId,
+                state: 'APPLIED',
+            })
+            .returning();
+
+        await db
+            .insert(schema.applicationStateLogs)
+            .values({
+                applicationId: application.id,
+                oldState: 'APPLIED',
+                newState: 'APPLIED',
+                changedBy: studentId,
+            });
+
+        res.status(201).json({ message: 'Applied successfully', application });
+    } catch (err) {
+        console.error('Apply job error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /student/applications
+ * Returns a list of applications made by the student.
+ */
+router.get('/applications', authenticate, requireRole('STUDENT'), async (req: Request, res: Response): Promise<void> => {
+    try {
+        const studentId = req.user!.id;
+
+        const apps = await db
+            .select({
+                id: schema.applications.id,
+                state: schema.applications.state,
+                appliedAt: schema.applications.appliedAt,
+                jobTitle: schema.jobs.title,
+                jobLocation: schema.jobs.location,
+                companyName: schema.companies.name,
+            })
+            .from(schema.applications)
+            .innerJoin(schema.jobs, eq(schema.applications.jobId, schema.jobs.id))
+            .innerJoin(schema.recruiters, eq(schema.jobs.recruiterId, schema.recruiters.id))
+            .innerJoin(schema.companies, eq(schema.recruiters.companyId, schema.companies.id))
+            .where(eq(schema.applications.studentId, studentId))
+            .orderBy(desc(schema.applications.appliedAt));
+
+        res.json({ applications: apps });
+    } catch (err) {
+        console.error('Fetch applications error:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
-import { sendEmail } from '../utils/email.ts';
+import { sendEmail } from '../utils/email.js';
 
 const router = Router();
 
