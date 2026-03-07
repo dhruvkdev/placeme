@@ -1,11 +1,305 @@
 import { Router, Request, Response } from 'express';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gt } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { sendEmail } from '../utils/email.js';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 
 const router = Router();
+const SALT_ROUNDS = 10;
+const JWT_SECRET = process.env.JWT_SECRET!;
+
+
+
+/**
+ * POST /recruiter/send-otp
+ * Body: { email }
+ * Re-checks domain (security), generates 6-digit OTP, saves to emailOtps, and emails it.
+ */
+router.post('/send-otp', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            res.status(400).json({ error: 'Email is required' });
+            return;
+        }
+
+        // Generate 6-digit OTP
+        const otp = crypto.randomInt(100000, 999999).toString();
+
+        // Set expiry to 10 minutes
+        const expiresAt = new Date();
+        expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
+        // Save OTP to database
+        await db
+            .insert(schema.emailOtps)
+            .values({
+                email: email.toLowerCase(),
+                otp,
+                expiresAt,
+            });
+
+        // Construct the email
+        const subject = "Your Placeme Verification Code";
+        const htmlMessage = `
+            <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+                <h2 style="color: #333;">Welcome to Placeme!</h2>
+                <p style="color: #555; font-size: 16px;">Use the following One-Time Password (OTP) to verify your recruiter account:</p>
+                <div style="background-color: #f4f4f4; padding: 16px; text-align: center; border-radius: 6px; margin: 24px 0;">
+                    <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #000;">${otp}</span>
+                </div>
+                <p style="color: #777; font-size: 14px;">This code will expire in 10 minutes. If you didn't request this, you can safely ignore this email.</p>
+            </div>
+        `;
+
+        // Send the OTP via Resend
+        const { error: emailError } = await sendEmail(email.toLowerCase(), subject, htmlMessage);
+
+        if (emailError) {
+            console.error('Failed to send OTP email via Resend:', emailError);
+            res.status(500).json({ 
+                error: 'Failed to send OTP email. Please try again later.',
+                details: emailError.message 
+            });
+            return;
+        }
+
+        // Success response (DO NOT return the OTP in the JSON anymore)
+        res.json({
+            message: 'OTP sent successfully to your email',
+            expiresInMinutes: 10,
+        });
+    } catch (err) {
+        console.error('Send OTP error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /recruiter/verify-otp
+ * Body: { email, otp, password }
+ * Validates OTP → creates user (STUDENT) + student row → returns JWT.
+ */
+router.post('/verify-otp', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { email, otp, password } = req.body;
+
+        if (!email || !otp || !password) {
+            res.status(400).json({ error: 'Email, OTP, and password are required' });
+            return;
+        }
+
+        if (password.length < 6) {
+            res.status(400).json({ error: 'Password must be at least 6 characters' });
+            return;
+        }
+
+        // Verify OTP
+        const [otpRecord] = await db
+            .select()
+            .from(schema.emailOtps)
+            .where(
+                and(
+                    eq(schema.emailOtps.email, email.toLowerCase()),
+                    eq(schema.emailOtps.otp, otp),
+                    eq(schema.emailOtps.isUsed, false),
+                    gt(schema.emailOtps.expiresAt, new Date())
+                )
+            )
+            .limit(1);
+
+        if (!otpRecord) {
+            res.status(400).json({ error: 'Invalid or expired OTP' });
+            return;
+        }
+
+        // Check if user already exists (race condition guard)
+        const [existingUser] = await db
+            .select()
+            .from(schema.users)
+            .where(eq(schema.users.email, email.toLowerCase()))
+            .limit(1);
+
+        if (existingUser) {
+            res.status(409).json({ error: 'An account with this email already exists' });
+            return;
+        }
+
+        // Hash password
+        const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+        // Create user
+        const [user] = await db
+            .insert(schema.users)
+            .values({
+                email: email.toLowerCase(),
+                passwordHash,
+                role: 'RECRUITER',
+            })
+            .returning();
+
+        // Create recruiter profile (state defaults to REGISTERED)
+        await db
+            .insert(schema.recruiters)
+            .values({
+                id: user.id,
+                companyId: null,
+            });
+
+        // Mark OTP as used
+        await db
+            .update(schema.emailOtps)
+            .set({ isUsed: true })
+            .where(eq(schema.emailOtps.id, otpRecord.id));
+
+        // Sign JWT
+        const token = jwt.sign(
+            { id: user.id, email: user.email, role: user.role },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        res.status(201).json({
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+            },
+        });
+    } catch (err) {
+        console.error('Verify OTP error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 router.use(authenticate, requireRole('RECRUITER'));
+
+/**
+ * GET /recruiter/profile
+ * Returns the Recruiter profile with company info.
+ * Frontend checks `companyId === null` to force the setup screen.
+ */
+router.get('/profile', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const [profile] = await db
+            .select()
+            .from(schema.recruiters)
+            .where(eq(schema.recruiters.id, req.user!.id))
+            .limit(1);
+
+        if (!profile) {
+            res.status(404).json({ error: 'Recruiter profile not found' });
+            return;
+        }
+
+        // If company is linked, fetch college details + domains
+        let company = null;
+        let domains: string[] = [];
+
+        if (profile.companyId) {
+            const [companyRow] = await db
+                .select()
+                .from(schema.companies)
+                .where(eq(schema.companies.id, profile.companyId))
+                .limit(1);
+
+            company = companyRow || null;
+
+            if (company) {
+                const domainRows = await db
+                    .select()
+                    .from(schema.companyDomains)
+                    .where(eq(schema.companyDomains.companyId, company.id));
+
+                domains = domainRows.map((d) => d.domain);
+            }
+        }
+
+        res.json({
+            profile: {
+                id: profile.id,
+                companyId: profile.companyId,
+                createdAt: profile.createdAt,
+            },
+            company,
+            domains,
+        });
+    } catch (err) {
+        console.error('Profile fetch error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /recruiter/setup-company
+ * Body: { companyName: string, domains: string[] }
+ * Creates company → inserts domains → links T&P profile.
+ * Only allowed when companyId is null (first-time setup).
+ */
+router.post('/setup-company', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { companyName, domains } = req.body;
+
+        if (!companyName || !domains || !Array.isArray(domains) || domains.length === 0) {
+            res.status(400).json({ error: 'collegeName and at least one domain are required' });
+            return;
+        }
+
+        // Check that T&P hasn't already set up a college
+        const [profile] = await db
+            .select()
+            .from(schema.recruiters)
+            .where(eq(schema.recruiters.id, req.user!.id))
+            .limit(1);
+
+        if (!profile) {
+            res.status(404).json({ error: 'T&P profile not found' });
+            return;
+        }
+
+        if (profile.companyId) {
+            res.status(409).json({ error: 'Company already configured' });
+            return;
+        }
+
+        // Create company
+        const [company] = await db
+            .insert(schema.companies)
+            .values({ name: companyName })
+            .returning();
+
+        // Insert domains
+        const domainRows = await db
+            .insert(schema.companyDomains)
+            .values(
+                domains.map((domain: string) => ({
+                    companyId: company.id,
+                    domain: domain.toLowerCase().trim(),
+                }))
+            )
+            .returning();
+
+        // Link T&P to the new company
+        await db
+            .update(schema.recruiters)
+            .set({ companyId: company.id })
+            .where(eq(schema.recruiters.id, req.user!.id));
+
+        res.status(201).json({
+            message: 'Company created and linked successfully',
+            company,
+            domains: domainRows.map((d) => d.domain),
+        });
+    } catch (err) {
+        console.error('Setup company error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 /**
  * GET /recruiter/dashboard

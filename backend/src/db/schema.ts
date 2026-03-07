@@ -126,8 +126,7 @@ export const recruiters = pgTable("recruiters", {
         .references(() => users.id),
 
     companyId: uuid("company_id")
-        .references(() => companies.id)
-        .notNull(),
+        .references(() => companies.id),
 
     verified: boolean("verified").default(false),
     createdAt: timestamp("created_at").defaultNow()
