@@ -161,13 +161,17 @@ export default function CompanyDashboard() {
         method: "POST",
         body: JSON.stringify({ title, type, location, ctc, description })
       });
+      const data = await res.json().catch(() => null);
+
       if (res.ok) {
         showToast("Job successfully submitted for T&P Approval!");
         e.target.reset();
         setActiveTab("overview");
         loadDashboardData();
       } else {
-        showToast("Failed to post job");
+        // Surface backend error messages (e.g. no colleges registered, DB issues)
+        const backendError = data && typeof data === "object" && "error" in data ? data.error : null;
+        showToast(backendError || "Failed to post job");
       }
     } catch {
       showToast("Server error");

@@ -176,6 +176,72 @@ export default function AuthDrawer({ isOpen, onClose }) {
     }
   };
 
+  // ── COMPANY (RECRUITER) REGISTER: send-otp ─────────────
+  const handleRecruiterSendOtp = async (e) => {
+    e?.preventDefault();
+    setError("");
+    setIsLoading(true);
+
+    try {
+      const res = await apiFetch("/recruiter/send-otp", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to send OTP.");
+        setIsLoading(false);
+        return;
+      }
+
+      // Move to OTP step
+      setStep(3);
+    } catch {
+      setError("Failed to connect to server.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── COMPANY (RECRUITER) REGISTER: verify-otp ───────────
+  const handleRecruiterVerifyOtp = async (e) => {
+    e?.preventDefault();
+    setError("");
+    setIsLoading(true);
+    setStep("loading");
+    setLoadingText("Verifying OTP…");
+
+    try {
+      const res = await apiFetch("/recruiter/verify-otp", {
+        method: "POST",
+        body: JSON.stringify({ email, otp, password }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Verification failed.");
+        setStep(3);
+        setIsLoading(false);
+        return;
+      }
+
+      // Recruiter account created → log in and go to recruiter dashboard
+      setLoadingText("Account created! Redirecting…");
+      login(data.token, data.user);
+
+      setTimeout(() => {
+        setIsLoading(false);
+        handleClose();
+        router.push("/dashboard/recruiter");
+      }, 800);
+    } catch {
+      setError("Failed to connect to server.");
+      setStep(3);
+      setIsLoading(false);
+    }
+  };
+
   // ── Handle "Next" based on current flow ────────────────
   const handleNextStep = (e) => {
     e?.preventDefault();
@@ -185,14 +251,22 @@ export default function AuthDrawer({ isOpen, onClose }) {
       return;
     }
 
-    // Register flow for student
+    // Register flow (student / company)
     if (step === 2) {
-      handleCheckEmail(e);
+      if (selectedRole === "student") {
+        handleCheckEmail(e);
+      } else if (selectedRole === "company") {
+        handleRecruiterSendOtp(e);
+      }
       return;
     }
 
     if (step === 3) {
-      handleVerifyOtp(e);
+      if (selectedRole === "student") {
+        handleVerifyOtp(e);
+      } else if (selectedRole === "company") {
+        handleRecruiterVerifyOtp(e);
+      }
       return;
     }
   };

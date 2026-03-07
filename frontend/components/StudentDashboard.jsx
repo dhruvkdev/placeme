@@ -645,12 +645,12 @@ export default function StudentDashboard() {
                   <div className="absolute left-[10%] right-[10%] top-1/2 h-[2px] bg-gray-100 -z-10 -translate-y-1/2"></div>
                   <div
                     className="absolute left-[10%] top-1/2 h-[2px] bg-[#6B99A8] -z-10 -translate-y-1/2 transition-all duration-500"
-                    style={{ width: `${(app.currentStage / (app.stages.length - 1)) * 80}%` }}
+                    style={{ width: `${(currentStage / (stages.length - 1)) * 80}%` }}
                   ></div>
 
-                  {app.stages.map((stage, index) => {
-                    const isActive = index <= app.currentStage;
-                    const isCurrent = index === app.currentStage;
+                  {stages.map((stage, index) => {
+                    const isActive = index <= currentStage;
+                    const isCurrent = index === currentStage;
 
                     return (
                       <div key={stage} className="flex flex-col items-center gap-2 sm:gap-3 bg-white px-1 sm:px-2">
