@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { apiFetch } from "@/lib/api";
 import {
   Shield, Send, CheckCircle2, AlertCircle, Loader2, LogOut,
-  Mail, Lock, ArrowRight, Copy, Users
+  Mail, Lock, ArrowRight, Copy, Users, Trash2, Building2, Search
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -25,6 +25,83 @@ export default function AdminDashboard() {
 
   // Toast
   const [toast, setToast] = useState<string | null>(null);
+
+  // Delete Modal State
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string; type: "COMPANY" | "TNP" | null; name: string }>({
+    isOpen: false,
+    id: "",
+    type: null,
+    name: ""
+  });
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Data State
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [tnps, setTnps] = useState<any[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [companySearch, setCompanySearch] = useState("");
+  const [tnpSearch, setTnpSearch] = useState("");
+
+  const fetchData = async () => {
+    setDataLoading(true);
+    try {
+      const [compRes, tnpRes] = await Promise.all([
+        apiFetch("/admin/companies"),
+        apiFetch("/admin/tnp")
+      ]);
+
+      if (compRes.ok) setCompanies(await compRes.json());
+      if (tnpRes.ok) setTnps(await tnpRes.json());
+    } catch (err) {
+      showToast("Failed to load platform data");
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user && user.role === "ADMIN") {
+      fetchData();
+    }
+  }, [user]);
+
+  const openDeleteModal = (id: string, type: "COMPANY" | "TNP", name: string) => {
+    setDeleteModal({ isOpen: true, id, type, name });
+  };
+
+  const closeDeleteModal = () => {
+    setDeleteModal({ isOpen: false, id: "", type: null, name: "" });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteModal.id || !deleteModal.type) return;
+
+    setDeleteLoading(true);
+    try {
+      if (deleteModal.type === "COMPANY") {
+        const res = await apiFetch(`/admin/company/${deleteModal.id}`, { method: "DELETE" });
+        if (res.ok) {
+          showToast("Company deleted successfully");
+          setCompanies(prev => prev.filter(c => c.id !== deleteModal.id));
+        } else {
+          showToast("Failed to delete company");
+        }
+      } else if (deleteModal.type === "TNP") {
+        const res = await apiFetch(`/admin/tnp/${deleteModal.id}`, { method: "DELETE" });
+        if (res.ok) {
+          showToast("T&P deleted successfully");
+          setTnps(prev => prev.filter(t => t.id !== deleteModal.id));
+        } else {
+          showToast("Failed to delete T&P");
+        }
+      }
+    } catch {
+      showToast(`Error deleting ${deleteModal.type === "COMPANY" ? "company" : "T&P"}`);
+    } finally {
+      setDeleteLoading(false);
+      closeDeleteModal();
+    }
+  };
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -229,6 +306,60 @@ export default function AdminDashboard() {
         )}
       </AnimatePresence>
 
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deleteModal.isOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeDeleteModal}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[150] cursor-pointer"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20, x: "-50%", translateY: "-50%" }}
+              animate={{ opacity: 1, scale: 1, y: 0, x: "-50%", translateY: "-50%" }}
+              exit={{ opacity: 0, scale: 0.95, y: 20, x: "-50%", translateY: "-50%" }}
+              className="fixed top-1/2 left-1/2 z-[160] w-full max-w-sm bg-white p-6 rounded-md shadow-2xl border border-gray-100 flex flex-col gap-6"
+            >
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                  <AlertCircle className="text-red-600 h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-[#1A1A1A]">Delete Context?</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Are you sure you want to delete <span className="font-semibold text-gray-800">{deleteModal.name}</span>? This action cannot be undone and will remove all associated platform data.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-2">
+                <button
+                  onClick={closeDeleteModal}
+                  disabled={deleteLoading}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-sm transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={deleteLoading}
+                  className="px-6 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-sm transition-colors flex items-center gap-2 disabled:opacity-60"
+                >
+                  {deleteLoading ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    "Delete"
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-6 sm:px-8 h-[70px] flex items-center justify-between">
@@ -342,6 +473,110 @@ export default function AdminDashboard() {
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+        </motion.div>
+
+        {/* Platform Data Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6"
+        >
+          {/* Companies List */}
+          <div className="bg-white border border-gray-200 p-6 flex flex-col h-[500px]">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Building2 size={18} className="text-[#2C6E8F]" />
+                <h2 className="text-lg font-medium text-[#1A1A1A]">Companies</h2>
+              </div>
+              <span className="bg-[#f4f8f9] text-[#2C6E8F] text-xs font-medium px-2.5 py-1 rounded">
+                Total: {companies.length}
+              </span>
+            </div>
+
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-2.5 text-gray-400" size={14} />
+              <input
+                type="text"
+                value={companySearch}
+                onChange={(e) => setCompanySearch(e.target.value)}
+                placeholder="Search companies..."
+                className="w-full border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-[#2C6E8F] focus:ring-1 focus:ring-[#2C6E8F]/20 transition-all rounded-sm"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-2 space-y-2">
+              {dataLoading ? (
+                <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-gray-400" /></div>
+              ) : companies.filter(c => c.name.toLowerCase().includes(companySearch.toLowerCase())).length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">No companies found</p>
+              ) : (
+                companies.filter(c => c.name.toLowerCase().includes(companySearch.toLowerCase())).map(company => (
+                  <div key={company.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border border-gray-100 bg-[#fafbfc] rounded-sm gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm text-[#1A1A1A] truncate">{company.name}</p>
+                      {company.website && <p className="text-xs text-gray-500 truncate">{company.website}</p>}
+                    </div>
+                    <button
+                      onClick={() => openDeleteModal(company.id, "COMPANY", company.name)}
+                      className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded transition-colors self-start sm:self-auto shrink-0"
+                      title="Delete Company"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* TNP Section */}
+          <div className="bg-white border border-gray-200 p-6 flex flex-col h-[500px]">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Users size={18} className="text-[#2C6E8F]" />
+                <h2 className="text-lg font-medium text-[#1A1A1A]">T&P Cells</h2>
+              </div>
+              <span className="bg-[#f4f8f9] text-[#2C6E8F] text-xs font-medium px-2.5 py-1 rounded">
+                Total: {tnps.length}
+              </span>
+            </div>
+
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-2.5 text-gray-400" size={14} />
+              <input
+                type="text"
+                value={tnpSearch}
+                onChange={(e) => setTnpSearch(e.target.value)}
+                placeholder="Search T&P cells..."
+                className="w-full border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-[#2C6E8F] focus:ring-1 focus:ring-[#2C6E8F]/20 transition-all rounded-sm"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-2 space-y-2">
+              {dataLoading ? (
+                <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-gray-400" /></div>
+              ) : tnps.filter(t => (t.name || "").toLowerCase().includes(tnpSearch.toLowerCase()) || t.email.toLowerCase().includes(tnpSearch.toLowerCase())).length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">No T&P cells found</p>
+              ) : (
+                tnps.filter(t => (t.name || "").toLowerCase().includes(tnpSearch.toLowerCase()) || t.email.toLowerCase().includes(tnpSearch.toLowerCase())).map(tnp => (
+                  <div key={tnp.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border border-gray-100 bg-[#fafbfc] rounded-sm gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm text-[#1A1A1A] truncate">{tnp.name || "Unnamed TNP"}</p>
+                      <p className="text-xs text-gray-500 truncate">{tnp.email}</p>
+                    </div>
+                    <button
+                      onClick={() => openDeleteModal(tnp.id, "TNP", tnp.name || tnp.email)}
+                      className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded transition-colors self-start sm:self-auto shrink-0"
+                      title="Delete T&P"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </motion.div>
       </main>

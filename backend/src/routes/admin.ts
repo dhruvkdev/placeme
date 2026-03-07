@@ -87,7 +87,7 @@ router.post('/invite-tnp', async (req: Request, res: Response): Promise<void> =>
             // is often better since the DB record was successfully created.
             res.status(201).json({
                 message: 'Invitation created, but failed to send email.',
-                inviteLink, 
+                inviteLink,
                 warning: emailError.message,
                 invitation: {
                     id: invitation.id,
@@ -100,15 +100,74 @@ router.post('/invite-tnp', async (req: Request, res: Response): Promise<void> =>
         res.status(201).json({
             message: 'Invitation created and email sent successfully',
             // You can remove inviteLink from the response later for better security in prod
-            inviteLink, 
+            inviteLink,
             invitation: {
                 id: invitation.id,
                 email: invitation.email,
                 expiresAt: invitation.expiresAt,
             },
         });
-    }catch (err) {
+    } catch (err) {
         console.error('Invite error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// GET /companies
+router.get('/companies', async (req: Request, res: Response) => {
+    try {
+        const allCompanies = await db.select().from(schema.companies);
+        res.json(allCompanies);
+    } catch (err) {
+        console.error('Error fetching companies:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// DELETE /company/:id
+router.delete('/company/:id', async (req: Request, res: Response) => {
+    try {
+        const id = req.params.id as string;
+
+        // Unlink all recruiters from this company to satisfy foreign key constraints
+        await db.update(schema.recruiters)
+            .set({ companyId: null })
+            .where(eq(schema.recruiters.companyId, id));
+
+        await db.delete(schema.companies).where(eq(schema.companies.id, id));
+        res.json({ message: 'Company deleted successfully' });
+    } catch (err) {
+        console.error('Error deleting company:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// GET /tnp
+router.get('/tnp', async (req: Request, res: Response) => {
+    try {
+        const allTnps = await db.select({
+            id: schema.users.id,
+            name: schema.users.name,
+            email: schema.users.email,
+            createdAt: schema.users.createdAt,
+        }).from(schema.users).where(eq(schema.users.role, 'TNP'));
+        res.json(allTnps);
+    } catch (err) {
+        console.error('Error fetching TNPs:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// DELETE /tnp/:id
+router.delete('/tnp/:id', async (req: Request, res: Response) => {
+    try {
+        const id = req.params.id as string;
+        // Delete tnp profile and user
+        await db.delete(schema.tnpProfiles).where(eq(schema.tnpProfiles.id, id));
+        await db.delete(schema.users).where(eq(schema.users.id, id));
+        res.json({ message: 'TNP deleted successfully' });
+    } catch (err) {
+        console.error('Error deleting TNP:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
