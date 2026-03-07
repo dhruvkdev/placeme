@@ -328,17 +328,18 @@ router.get('/profile', authenticate, requireRole('STUDENT'), async (req: Request
 
 /**
  * PUT /student/profile
- * Body: { cgpa, branch, graduationYear }
+ * Body: { cgpa, branch, graduationYear, github, leetcode, linkedin }
  * Updates academic details and sets state to PENDING_VERIFICATION.
  */
 router.put('/profile', authenticate, requireRole('STUDENT'), async (req: Request, res: Response): Promise<void> => {
     try {
-        const { cgpa, branch, graduationYear } = req.body;
+        const { cgpa, branch, graduationYear, github, linkedin, leetcode } = req.body;
 
         if (!cgpa || !branch || !graduationYear) {
             res.status(400).json({ error: 'cgpa, branch, and graduationYear are required' });
             return;
         }
+
 
         // Verify the student exists
         const [student] = await db
@@ -366,6 +367,9 @@ router.put('/profile', authenticate, requireRole('STUDENT'), async (req: Request
                 branch,
                 graduationYear: parseInt(graduationYear),
                 state: 'PENDING_VERIFICATION',
+                github: github,
+                leetcode: leetcode,
+                linkedin: linkedin
             })
             .where(eq(schema.students.id, req.user!.id))
             .returning();
@@ -378,6 +382,9 @@ router.put('/profile', authenticate, requireRole('STUDENT'), async (req: Request
                 branch: updated.branch,
                 graduationYear: updated.graduationYear,
                 state: updated.state,
+                github: updated.github,
+                linkedin: updated.linkedin,
+                leetcode: updated.leetcode
             },
         });
     } catch (err) {

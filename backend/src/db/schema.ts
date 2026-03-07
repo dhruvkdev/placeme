@@ -77,6 +77,9 @@ export const students = pgTable("students", {
         .default("REGISTERED")
         .notNull(),
 
+    github: text("github").unique(),
+    linkedin: text("linkedin").unique(),
+    leetcode: text("leetcode").unique(),
     verifiedBy: uuid("verified_by"),
     verifiedAt: timestamp("verified_at"),
     createdAt: timestamp("created_at").defaultNow()
