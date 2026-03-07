@@ -216,19 +216,23 @@ export default function CompanyDashboard() {
           collegeIds: selectedColleges
         })
       });
-      const data = await res.json().catch(() => null);
+
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = null;
+      }
 
       if (res.ok) {
-        const data = await res.json();
-        showToast(`Job submitted for approval to ${data.submittedToCount || selectedColleges.length} campus(es)!`);
+        showToast(`Job submitted for approval to ${data?.submittedToCount || selectedColleges.length} campus(es)!`);
         if (formRef) formRef.reset();
         setShowCampusModal(false);
         setPendingJobData(null);
         setActiveTab("overview");
         loadDashboardData();
       } else {
-        const data = await res.json();
-        showToast(data.error || "Failed to post job");
+        showToast(data?.error || "Failed to post job");
       }
     } catch (err) {
       console.error("Submit job error:", err);
