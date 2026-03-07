@@ -39,6 +39,11 @@ export default function TnPDashboard() {
   const [pendingStudents, setPendingStudents] = useState([]);
   const [pendingStudentsLoading, setPendingStudentsLoading] = useState(false);
 
+  // Applications (college-wide)
+  const [applications, setApplications] = useState([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
+  const [updatingAppId, setUpdatingAppId] = useState(null);
+
   // Job posting
   const [postedJobs, setPostedJobs] = useState([]);
   const [jobsLoading, setJobsLoading] = useState(false);
@@ -108,6 +113,9 @@ export default function TnPDashboard() {
 
     // Also load pending students
     fetchPendingStudents();
+
+    // Preload applications list
+    fetchApplications();
   };
 
   const fetchPendingStudents = async () => {
@@ -120,6 +128,56 @@ export default function TnPDashboard() {
       }
     } catch { /* silently fail */ }
     setPendingStudentsLoading(false);
+  };
+
+  const fetchApplications = async () => {
+    setApplicationsLoading(true);
+    try {
+      const res = await apiFetch("/tnp/applications");
+      if (res.ok) {
+        const data = await res.json();
+        setApplications(data.applications || []);
+      }
+    } catch {
+      // silently fail
+    }
+    setApplicationsLoading(false);
+  };
+
+  const APPLICATION_STATES = [
+    "APPLIED",
+    "SHORTLISTED",
+    "INTERVIEW_SCHEDULED",
+    "INTERVIEWED",
+    "HR_ROUND",
+    "OFFERED",
+    "ACCEPTED",
+    "REJECTED",
+  ];
+
+  const handleUpdateApplicationStatus = async (appId, newStatus) => {
+    setUpdatingAppId(appId);
+    try {
+      const res = await apiFetch(`/tnp/applications/${appId}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setApplications((prev) =>
+          prev.map((app) =>
+            app.id === appId ? { ...app, state: newStatus } : app
+          )
+        );
+        showToast("Application status updated.");
+      } else {
+        showToast(data.error || "Failed to update application status.");
+      }
+    } catch {
+      showToast("Failed to connect to server.");
+    } finally {
+      setUpdatingAppId(null);
+    }
   };
 
   const handleVerifyStudent = async (studentId, name) => {
@@ -602,6 +660,130 @@ export default function TnPDashboard() {
     </motion.div>
   );
 
+  const renderApplications = () => (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="w-full"
+    >
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mb-6 sm:mb-8 gap-2">
+        <div>
+          <h2 className="text-2xl sm:text-3xl font-medium text-[#1A1A1A] tracking-tight">
+            Application <span className="font-serif italic text-[#6B99A8]">Stages</span>
+          </h2>
+          <p className="text-sm sm:text-[15px] text-gray-500 mt-1 sm:mt-2">
+            Review and update application stages for students in your college.
+          </p>
+        </div>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-sm">
+        {applicationsLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 size={20} className="animate-spin text-gray-400" />
+          </div>
+        ) : (
+          <table className="w-full text-left border-collapse table-fixed sm:table-auto">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-500">
+                <th className="p-2 sm:p-4 font-medium w-[30%] sm:w-auto">
+                  Student
+                </th>
+                <th className="p-2 sm:p-4 font-medium w-[35%] sm:w-auto">
+                  Company & Role
+                </th>
+                <th className="p-2 sm:p-4 font-medium w-[20%] sm:w-auto">
+                  Stage
+                </th>
+                <th className="p-2 sm:p-4 font-medium w-[15%] sm:w-auto">
+                  Applied On
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {applications.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="p-8 text-center text-gray-500 text-sm"
+                  >
+                    No applications found for your college yet.
+                  </td>
+                </tr>
+              ) : (
+                applications.map((app) => {
+                  const appliedDate = app.appliedAt
+                    ? new Date(app.appliedAt).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })
+                    : "-";
+
+                  return (
+                    <tr
+                      key={app.id}
+                      className="hover:bg-gray-50/50 transition-colors align-top sm:align-middle"
+                    >
+                      <td className="p-2 sm:p-4 overflow-hidden">
+                        <p className="text-[11px] sm:text-[13px] font-semibold text-[#1A1A1A] truncate">
+                          {app.studentName}
+                        </p>
+                        <p className="text-[9px] sm:text-[11px] text-gray-500 truncate">
+                          {app.studentEmail}
+                        </p>
+                        <p className="text-[9px] text-gray-600 sm:hidden mt-1 truncate">
+                          {app.studentBranch || "-"}
+                        </p>
+                      </td>
+                      <td className="p-2 sm:p-4 overflow-hidden">
+                        <p className="text-[11px] sm:text-[13px] font-semibold text-[#1A1A1A] truncate">
+                          {app.companyName}
+                        </p>
+                        <p className="text-[9px] sm:text-[11px] text-[#5B8D9E] font-medium truncate">
+                          {app.jobTitle}
+                        </p>
+                      </td>
+                      <td className="p-2 sm:p-4">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded bg-gray-100 text-gray-700 uppercase tracking-wider border border-gray-200 inline-block">
+                            {app.state.replace("_", " ")}
+                          </span>
+                          <select
+                            value={app.state}
+                            disabled={updatingAppId === app.id}
+                            onChange={(e) =>
+                              handleUpdateApplicationStatus(
+                                app.id,
+                                e.target.value
+                              )
+                            }
+                            className="mt-1 w-full border border-gray-200 text-[10px] sm:text-[11px] px-1.5 py-1 rounded-sm bg-white focus:outline-none focus:border-[#6B99A8]"
+                          >
+                            {APPLICATION_STATES.map((state) => (
+                              <option key={state} value={state}>
+                                {state.replace("_", " ")}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
+                      <td className="p-2 sm:p-4">
+                        <p className="text-[10px] sm:text-[12px] text-gray-600">
+                          {appliedDate}
+                        </p>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </motion.div>
+  );
+
   const fetchJobs = async () => {
     setJobsLoading(true);
     try {
@@ -773,6 +955,7 @@ export default function TnPDashboard() {
           </button>
           <button onClick={() => { setActiveTab('jobs'); fetchJobs(); }} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'jobs' || activeTab === 'postjob' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><Briefcase size={16} /> Jobs</button>
           <button onClick={() => setActiveTab('students')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'students' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><Users size={16} /> Student Directory</button>
+          <button onClick={() => { setActiveTab('applications'); fetchApplications(); }} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'applications' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><CheckCircle2 size={16} /> Applications</button>
         </div>
         <div className="p-4 border-t border-gray-100">
           <button onClick={logout} className="flex items-center gap-2 px-4 py-2 text-[12px] text-gray-500 hover:text-red-600 transition-colors font-medium w-full">
@@ -807,6 +990,7 @@ export default function TnPDashboard() {
                 </button>
                 <button onClick={() => { handleTabChange('jobs'); fetchJobs(); }} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'jobs' || activeTab === 'postjob' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><Briefcase size={16} /> Jobs</button>
                 <button onClick={() => handleTabChange('students')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'students' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><Users size={16} /> Student Directory</button>
+                <button onClick={() => { handleTabChange('applications'); fetchApplications(); }} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'applications' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><CheckCircle2 size={16} /> Applications</button>
               </div>
               <div className="p-4 border-t border-gray-100">
                 <button onClick={logout} className="flex items-center gap-2 px-4 py-2 text-[12px] text-gray-500 hover:text-red-600 transition-colors font-medium w-full">
@@ -839,6 +1023,7 @@ export default function TnPDashboard() {
               {activeTab === 'jobs' && renderPostedJobs()}
               {activeTab === 'postjob' && renderPostJob()}
               {activeTab === 'students' && renderDirectory()}
+              {activeTab === 'applications' && renderApplications()}
             </AnimatePresence>
           </div>
         </main>

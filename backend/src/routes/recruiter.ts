@@ -405,6 +405,23 @@ router.post('/jobs', async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
+        // Ensure recruiter profile exists and company is configured
+        const [recruiterProfile] = await db
+            .select()
+            .from(schema.recruiters)
+            .where(eq(schema.recruiters.id, recruiterId))
+            .limit(1);
+
+        if (!recruiterProfile) {
+            res.status(404).json({ error: 'Recruiter profile not found. Please complete recruiter onboarding.' });
+            return;
+        }
+
+        if (!recruiterProfile.companyId) {
+            res.status(400).json({ error: 'Please complete company setup before posting jobs.' });
+            return;
+        }
+
         // 1. Get all colleges that have a registered T&P
         const registeredColleges = await db
             .select({ id: schema.colleges.id })
