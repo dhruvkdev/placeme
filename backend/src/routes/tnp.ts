@@ -340,30 +340,82 @@ router.get('/students', async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        const students = await db
+        const rows = await db
             .select({
-                id: schema.users.id, // we might want email/custom ID
+                userId: schema.users.id,
                 name: schema.users.name,
                 branch: schema.students.branch,
                 cgpa: schema.students.cgpa,
-                status: schema.students.state,
-                company: schema.companies.name // To be accurate, needs a join with applications or a placements table
+                studentState: schema.students.state,
+                acceptedApplicationId: schema.applications.id,
+                company: schema.companies.name,
             })
             .from(schema.students)
             .innerJoin(schema.users, eq(schema.students.id, schema.users.id))
-            .leftJoin(schema.applications, and(eq(schema.applications.studentId, schema.students.id), eq(schema.applications.state, 'ACCEPTED')))
+            .leftJoin(
+                schema.applications,
+                and(
+                    eq(schema.applications.studentId, schema.students.id),
+                    eq(schema.applications.state, 'ACCEPTED'),
+                ),
+            )
             .leftJoin(schema.jobs, eq(schema.applications.jobId, schema.jobs.id))
             .leftJoin(schema.recruiters, eq(schema.jobs.recruiterId, schema.recruiters.id))
             .leftJoin(schema.companies, eq(schema.recruiters.companyId, schema.companies.id))
             .where(eq(schema.students.collegeId, profile.collegeId));
 
-        const mappedStudents = students.map((s, index) => ({
-            id: `STD00${index + 1}`,
-            name: s.name || `Student ${index + 1}`,
-            branch: s.branch || 'Unknown',
+        // Collapse potential duplicate rows per student (multiple accepted offers)
+        const byStudent = new Map<string, {
+            id: string;
+            name: string;
+            branch: string;
+            cgpa: string | null;
+            status: string;
+            company: string;
+            hasAccepted: boolean;
+        }>();
+
+        for (const row of rows) {
+            const existing = byStudent.get(row.userId);
+            const hasAccepted = !!row.acceptedApplicationId || (existing?.hasAccepted ?? false);
+
+            // If student has any ACCEPTED application or their own state is PLACED,
+            // treat them as placed in the directory.
+            const effectiveStatus =
+                hasAccepted || row.studentState === 'PLACED'
+                    ? 'PLACED'
+                    : row.studentState;
+
+            const company = row.company || existing?.company || '-';
+
+            if (!existing) {
+                const index = byStudent.size; // 0-based
+                byStudent.set(row.userId, {
+                    id: `STD00${index + 1}`,
+                    name: row.name || `Student ${index + 1}`,
+                    branch: row.branch || 'Unknown',
+                    cgpa: row.cgpa || null,
+                    status: effectiveStatus,
+                    company,
+                    hasAccepted,
+                });
+            } else {
+                byStudent.set(row.userId, {
+                    ...existing,
+                    status: effectiveStatus,
+                    company,
+                    hasAccepted,
+                });
+            }
+        }
+
+        const mappedStudents = Array.from(byStudent.values()).map((s) => ({
+            id: s.id,
+            name: s.name,
+            branch: s.branch,
             cgpa: s.cgpa || 'N/A',
-            status: s.status === 'PLACED' ? 'Placed' : 'Unplaced',
-            company: s.company || '-'
+            status: s.status,
+            company: s.company,
         }));
 
         res.json({ students: mappedStudents });
