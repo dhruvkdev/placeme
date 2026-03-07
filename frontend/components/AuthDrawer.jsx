@@ -19,7 +19,6 @@ export default function AuthDrawer({ isOpen, onClose }) {
   const [step, setStep] = useState(1);
   const [selectedRole, setSelectedRole] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
   const [loadingText, setLoadingText] = useState("");
   const [error, setError] = useState(null);
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
