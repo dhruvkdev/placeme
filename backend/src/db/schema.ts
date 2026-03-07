@@ -138,8 +138,15 @@ export const jobs = pgTable("jobs", {
     recruiterId: uuid("recruiter_id")
         .references(() => recruiters.id),
 
+    collegeId: uuid("college_id")
+        .references(() => colleges.id),
+
+    postedByTnpId: uuid("posted_by_tnp_id")
+        .references(() => tnpProfiles.id),
+
     title: text("title").notNull(),
     description: text("description").notNull(),
+    branches: text("branches").array(),
 
     minCgpa: numeric("min_cgpa", { precision: 3, scale: 2 }),
     location: text("location"),

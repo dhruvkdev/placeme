@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 
@@ -176,13 +176,18 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
                 role: schema.jobs.title,
                 type: schema.jobs.description, // We packed type in description
                 ctc: schema.jobs.description,  // We packed ctc in description
-                branches: schema.jobs.description,
+                branches: schema.jobs.branches,
                 company: schema.companies.name
             })
             .from(schema.jobs)
             .innerJoin(schema.recruiters, eq(schema.jobs.recruiterId, schema.recruiters.id))
             .innerJoin(schema.companies, eq(schema.recruiters.companyId, schema.companies.id))
-            .where(eq(schema.jobs.state, 'SUBMITTED'));
+            .where(
+                and(
+                    eq(schema.jobs.state, 'SUBMITTED'),
+                    eq(schema.jobs.collegeId, profile.collegeId)
+                )
+            );
 
         const mappedApprovals = pendingApprovals.map(job => {
             const desc = job.type || '';
@@ -195,7 +200,7 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
                 role: job.role,
                 type: typeMatch ? typeMatch[1] : 'Full-Time',
                 ctc: ctcMatch ? ctcMatch[1] : 'N/A',
-                branches: "All Branches" // Placeholder
+                branches: job.branches && job.branches.length > 0 ? job.branches.join(', ') : 'All Branches'
             }
         });
 
@@ -316,6 +321,120 @@ router.post('/jobs/:jobId/reject', async (req: Request, res: Response): Promise<
         res.json({ message: 'Job rejected successfully' });
     } catch (err) {
         console.error('Reject job error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /tnp/jobs
+ * Lists all jobs posted for the T&P's college (by recruiters or T&P itself).
+ */
+router.get('/jobs', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const [profile] = await db
+            .select()
+            .from(schema.tnpProfiles)
+            .where(eq(schema.tnpProfiles.id, req.user!.id))
+            .limit(1);
+
+        if (!profile || !profile.collegeId) {
+            res.status(400).json({ error: 'College not configured yet' });
+            return;
+        }
+
+        const jobsList = await db
+            .select({
+                id: schema.jobs.id,
+                title: schema.jobs.title,
+                description: schema.jobs.description,
+                location: schema.jobs.location,
+                branches: schema.jobs.branches,
+                minCgpa: schema.jobs.minCgpa,
+                state: schema.jobs.state,
+                createdAt: schema.jobs.createdAt,
+                recruiterId: schema.jobs.recruiterId,
+                postedByTnpId: schema.jobs.postedByTnpId,
+                companyName: schema.companies.name,
+            })
+            .from(schema.jobs)
+            .leftJoin(schema.recruiters, eq(schema.jobs.recruiterId, schema.recruiters.id))
+            .leftJoin(schema.companies, eq(schema.recruiters.companyId, schema.companies.id))
+            .where(eq(schema.jobs.collegeId, profile.collegeId))
+            .orderBy(desc(schema.jobs.createdAt));
+
+        const formattedJobs = jobsList.map((job) => {
+            let type = 'N/A';
+            let ctc = 'N/A';
+            const descStr = job.description || '';
+            const typeMatch = descStr.match(/Type:\s*(.*)/);
+            const ctcMatch = descStr.match(/CTC:\s*(.*)/);
+            if (typeMatch) type = typeMatch[1];
+            if (ctcMatch) ctc = ctcMatch[1];
+
+            return {
+                id: job.id,
+                title: job.title,
+                description: job.description,
+                location: job.location,
+                branches: job.branches,
+                minCgpa: job.minCgpa,
+                state: job.state,
+                createdAt: job.createdAt,
+                type,
+                ctc,
+                companyName: job.companyName || 'T&P Cell',
+                isTnpPosted: !!job.postedByTnpId,
+            };
+        });
+
+        res.json({ jobs: formattedJobs });
+    } catch (err) {
+        console.error('Fetch TNP jobs error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /tnp/jobs
+ * T&P can post jobs by its own. These jobs skip SUBMITTED state and are PUBLISHED directly.
+ */
+router.post('/jobs', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const [profile] = await db
+            .select()
+            .from(schema.tnpProfiles)
+            .where(eq(schema.tnpProfiles.id, req.user!.id))
+            .limit(1);
+
+        if (!profile || !profile.collegeId) {
+            res.status(400).json({ error: 'College not configured yet' });
+            return;
+        }
+
+        const { title, description, location, minCgpa, type, ctc, branches } = req.body;
+
+        if (!title || !description) {
+            res.status(400).json({ error: 'Title and description are required' });
+            return;
+        }
+
+        const [job] = await db
+            .insert(schema.jobs)
+            .values({
+                postedByTnpId: profile.id,
+                collegeId: profile.collegeId,
+                title,
+                description: `${description}\n\nType: ${type || 'N/A'}\nCTC: ${ctc || 'N/A'}`,
+                location,
+                branches: branches && branches.length > 0 ? branches : null,
+                minCgpa: minCgpa ? minCgpa.toString() : null,
+                state: 'PUBLISHED' // TNP's own jobs are pre-approved
+            })
+            .returning();
+
+        res.status(201).json({ message: 'Job posted successfully', job });
+    } catch (err) {
+        console.error('Post TNP job error:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

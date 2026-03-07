@@ -61,9 +61,9 @@ router.post('/send-otp', async (req: Request, res: Response): Promise<void> => {
 
         if (emailError) {
             console.error('Failed to send OTP email via Resend:', emailError);
-            res.status(500).json({ 
+            res.status(500).json({
                 error: 'Failed to send OTP email. Please try again later.',
-                details: emailError.message 
+                details: emailError.message
             });
             return;
         }
@@ -197,7 +197,7 @@ router.get('/profile', async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // If company is linked, fetch college details + domains
+        // If company is linked, fetch company details + domains
         let company = null;
         let domains: string[] = [];
 
@@ -238,7 +238,7 @@ router.get('/profile', async (req: Request, res: Response): Promise<void> => {
 /**
  * POST /recruiter/setup-company
  * Body: { companyName: string, domains: string[] }
- * Creates company → inserts domains → links T&P profile.
+ * Creates company → inserts domains → links recruiter profile.
  * Only allowed when companyId is null (first-time setup).
  */
 router.post('/setup-company', async (req: Request, res: Response): Promise<void> => {
@@ -246,11 +246,11 @@ router.post('/setup-company', async (req: Request, res: Response): Promise<void>
         const { companyName, domains } = req.body;
 
         if (!companyName || !domains || !Array.isArray(domains) || domains.length === 0) {
-            res.status(400).json({ error: 'collegeName and at least one domain are required' });
+            res.status(400).json({ error: 'companyName and at least one domain are required' });
             return;
         }
 
-        // Check that T&P hasn't already set up a college
+        // Check that recruiter hasn't already set up a company
         const [profile] = await db
             .select()
             .from(schema.recruiters)
@@ -258,7 +258,7 @@ router.post('/setup-company', async (req: Request, res: Response): Promise<void>
             .limit(1);
 
         if (!profile) {
-            res.status(404).json({ error: 'T&P profile not found' });
+            res.status(404).json({ error: 'Recruiter profile not found' });
             return;
         }
 
@@ -284,7 +284,7 @@ router.post('/setup-company', async (req: Request, res: Response): Promise<void>
             )
             .returning();
 
-        // Link T&P to the new company
+        // Link recruiter to the new company
         await db
             .update(schema.recruiters)
             .set({ companyId: company.id })
@@ -367,16 +367,41 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
+ * GET /recruiter/colleges
+ * Returns a list of all colleges that have a registered T&P.
+ * Recruiters use this to select a college when posting a job.
+ */
+router.get('/colleges', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const registeredColleges = await db
+            .select({
+                id: schema.colleges.id,
+                name: schema.colleges.name,
+            })
+            .from(schema.colleges)
+            .innerJoin(schema.tnpProfiles, eq(schema.tnpProfiles.collegeId, schema.colleges.id));
+
+        // Ensure unique colleges in case multiple T&Ps are linked to the same college
+        const uniqueColleges = Array.from(new Map(registeredColleges.map(c => [c.id, c])).values());
+
+        res.json({ colleges: uniqueColleges });
+    } catch (err) {
+        console.error('Fetch colleges error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
  * POST /recruiter/jobs
  * Creates a new job listing.
  */
 router.post('/jobs', async (req: Request, res: Response): Promise<void> => {
     try {
         const recruiterId = req.user!.id;
-        const { title, description, location, minCgpa, type, ctc } = req.body;
+        const { title, description, location, minCgpa, type, ctc, collegeId, branches } = req.body;
 
-        if (!title || !description) {
-            res.status(400).json({ error: 'Title and description are required' });
+        if (!title || !description || !collegeId) {
+            res.status(400).json({ error: 'Title, description, and collegeId are required' });
             return;
         }
 
@@ -384,9 +409,11 @@ router.post('/jobs', async (req: Request, res: Response): Promise<void> => {
             .insert(schema.jobs)
             .values({
                 recruiterId,
+                collegeId,
                 title,
                 description: `${description}\n\nType: ${type}\nCTC: ${ctc}`, // Storing type/ctc in description for now since schema doesn't have them
                 location,
+                branches: branches && branches.length > 0 ? branches : null,
                 minCgpa: minCgpa ? minCgpa.toString() : null,
                 state: 'SUBMITTED' // Awaiting T&P approval
             })
