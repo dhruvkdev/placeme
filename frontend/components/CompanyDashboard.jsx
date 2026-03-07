@@ -8,7 +8,7 @@ import {
   LayoutDashboard, PlusCircle, Users, Bell,
   Search, CheckCircle2, ChevronRight, Star,
   TrendingUp, Filter, MapPin, X, Calendar, Clock, Link as LinkIcon, FileText, Menu,
-  Loader2, Building, Globe, LogOut, AlertCircle
+  Loader2, Building, Globe, LogOut, AlertCircle, GraduationCap
 } from "lucide-react";
 
 export default function CompanyDashboard() {
@@ -27,16 +27,26 @@ export default function CompanyDashboard() {
   const [setupSubmitting, setSetupSubmitting] = useState(false);
   const [setupError, setSetupError] = useState("");
 
+  // Campus selection modal state
+  const [showCampusModal, setShowCampusModal] = useState(false);
+  const [availableColleges, setAvailableColleges] = useState([]);
+  const [selectedColleges, setSelectedColleges] = useState([]);
+  const [pendingJobData, setPendingJobData] = useState(null);
+  const [collegesLoading, setCollegesLoading] = useState(false);
+  const [jobSubmitting, setJobSubmitting] = useState(false);
+
   useEffect(() => {
     (async () => {
       try {
         const res = await apiFetch("/recruiter/profile");
-        const data = await res.json();
 
         if (!res.ok) {
+          setNeedsSetup(true);
           setSetupLoading(false);
           return;
         }
+
+        const data = await res.json();
 
         if (!data.profile?.companyId) {
           setNeedsSetup(true);
@@ -44,7 +54,7 @@ export default function CompanyDashboard() {
           setNeedsSetup(false);
         }
       } catch {
-        // Fallback
+        setNeedsSetup(true);
       }
       setSetupLoading(false);
     })();
@@ -156,25 +166,79 @@ export default function CompanyDashboard() {
     const ctc = formData.get("ctc");
     const description = formData.get("description");
 
+    // Save form data and open campus selection modal
+    setPendingJobData({ title, type, location, ctc, description, formRef: e.target });
+    setCollegesLoading(true);
+    setShowCampusModal(true);
+    setSelectedColleges([]);
+
     try {
+      const res = await apiFetch("/recruiter/colleges");
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableColleges(data.colleges || []);
+      } else {
+        showToast("Failed to load campuses");
+        setShowCampusModal(false);
+      }
+    } catch {
+      showToast("Server error loading campuses");
+      setShowCampusModal(false);
+    } finally {
+      setCollegesLoading(false);
+    }
+  };
+
+  const toggleCollegeSelection = (id) => {
+    setSelectedColleges(prev =>
+      prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedColleges.length === availableColleges.length) {
+      setSelectedColleges([]);
+    } else {
+      setSelectedColleges(availableColleges.map(c => c.id));
+    }
+  };
+
+  const handleConfirmSubmit = async () => {
+    if (!pendingJobData || selectedColleges.length === 0) return;
+    setJobSubmitting(true);
+
+    try {
+      const { formRef, ...jobPayload } = pendingJobData;
       const res = await apiFetch("/recruiter/jobs", {
         method: "POST",
-        body: JSON.stringify({ title, type, location, ctc, description })
+        body: JSON.stringify({
+          ...jobPayload,
+          collegeIds: selectedColleges
+        })
       });
-      const data = await res.json().catch(() => null);
+
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = null;
+      }
 
       if (res.ok) {
-        showToast("Job successfully submitted for T&P Approval!");
-        e.target.reset();
+        showToast(`Job submitted for approval to ${data?.submittedToCount || selectedColleges.length} campus(es)!`);
+        if (formRef) formRef.reset();
+        setShowCampusModal(false);
+        setPendingJobData(null);
         setActiveTab("overview");
         loadDashboardData();
       } else {
-        // Surface backend error messages (e.g. no colleges registered, DB issues)
-        const backendError = data && typeof data === "object" && "error" in data ? data.error : null;
-        showToast(backendError || "Failed to post job");
+        showToast(data?.error || "Failed to post job");
       }
-    } catch {
+    } catch (err) {
+      console.error("Submit job error:", err);
       showToast("Server error");
+    } finally {
+      setJobSubmitting(false);
     }
   };
 
@@ -461,6 +525,109 @@ export default function CompanyDashboard() {
         )}
       </AnimatePresence>
 
+      {/* Campus Selection Modal */}
+      <AnimatePresence>
+        {showCampusModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => { setShowCampusModal(false); setPendingJobData(null); }}
+            className="fixed inset-0 z-[160] bg-[#1A1A1A]/40 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white border border-gray-200 shadow-2xl max-w-lg w-full rounded-sm overflow-hidden"
+            >
+              {/* Header */}
+              <div className="p-6 border-b border-gray-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-[#f4f8f9] rounded-full flex items-center justify-center">
+                      <GraduationCap size={18} className="text-[#5B8D9E]" />
+                    </div>
+                    <div>
+                      <h3 className="text-[15px] font-medium text-[#1A1A1A]">Select Campuses</h3>
+                      <p className="text-[11px] text-gray-500 mt-0.5">Choose which campus T&P cells should review this job</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setShowCampusModal(false); setPendingJobData(null); }} className="text-gray-400 hover:text-black transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 max-h-[50vh] overflow-y-auto">
+                {collegesLoading ? (
+                  <div className="flex justify-center py-10">
+                    <Loader2 size={20} className="animate-spin text-[#6B99A8]" />
+                  </div>
+                ) : availableColleges.length === 0 ? (
+                  <div className="text-center py-10">
+                    <AlertCircle size={28} className="mx-auto text-gray-300 mb-3" />
+                    <p className="text-sm text-gray-500">No campuses with T&P cells found.</p>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={toggleSelectAll}
+                      className="text-[11px] text-[#5B8D9E] font-medium hover:underline mb-4 block"
+                    >
+                      {selectedColleges.length === availableColleges.length ? "Deselect All" : "Select All"}
+                    </button>
+                    <div className="space-y-2">
+                      {availableColleges.map((college) => {
+                        const isSelected = selectedColleges.includes(college.id);
+                        return (
+                          <div
+                            key={college.id}
+                            onClick={() => toggleCollegeSelection(college.id)}
+                            className={`flex items-center gap-3 p-3.5 border rounded-sm cursor-pointer transition-all ${isSelected
+                              ? "border-[#6B99A8] bg-[#f4f8f9]"
+                              : "border-gray-200 hover:border-gray-300 bg-white"
+                              }`}
+                          >
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${isSelected ? "bg-[#6B99A8] border-[#6B99A8]" : "border-gray-300"
+                              }`}>
+                              {isSelected && <CheckCircle2 size={12} className="text-white" strokeWidth={3} />}
+                            </div>
+                            <div className="flex items-center gap-2 overflow-hidden">
+                              <Building size={14} className="text-gray-400 shrink-0" />
+                              <span className="text-[13px] font-medium text-[#1A1A1A] truncate">{college.name}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Footer */}
+              {availableColleges.length > 0 && (
+                <div className="p-6 border-t border-gray-100 flex items-center justify-between">
+                  <p className="text-[11px] text-gray-500">
+                    {selectedColleges.length} of {availableColleges.length} campus(es) selected
+                  </p>
+                  <button
+                    onClick={handleConfirmSubmit}
+                    disabled={selectedColleges.length === 0 || jobSubmitting}
+                    className="bg-[#1A1A1A] text-white px-6 py-2.5 text-[12px] font-medium rounded-sm hover:bg-black transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {jobSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                    Confirm & Submit
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Candidate Profile & Interview Scheduling Modal */}
       <AnimatePresence>
         {selectedCandidate && (
@@ -471,10 +638,10 @@ export default function CompanyDashboard() {
               <div className="w-full md:w-1/2 p-6 sm:p-8 border-b md:border-b-0 md:border-r border-gray-100 bg-gray-50/30 relative">
                 <button onClick={() => setSelectedCandidate(null)} className="md:hidden absolute top-4 right-4 text-gray-400 hover:text-black"><X size={20} /></button>
                 <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-[#6B99A8] to-[#92b5c1] flex items-center justify-center text-white text-xl sm:text-2xl font-light tracking-wider mb-4 shadow-sm">
-                  {selectedCandidate.name.split(" ").map((n) => n[0]).join("")}
+                  {(selectedCandidate.name || "Candidate").split(" ").map((n) => n[0]).join("")}
                 </div>
-                <h3 className="text-xl sm:text-2xl font-medium text-[#1A1A1A] mb-1 pr-6">{selectedCandidate.name}</h3>
-                <p className="text-[12px] sm:text-[13px] text-gray-500 mb-5 sm:mb-6">{selectedCandidate.college} • {selectedCandidate.branch}</p>
+                <h3 className="text-xl sm:text-2xl font-medium text-[#1A1A1A] mb-1 pr-6">{selectedCandidate.name || "Unknown Candidate"}</h3>
+                <p className="text-[12px] sm:text-[13px] text-gray-500 mb-5 sm:mb-6">{selectedCandidate.college || "Unknown College"} • {selectedCandidate.branch || "Unknown Branch"}</p>
 
                 <div className="space-y-3 sm:space-y-4 text-[12px] sm:text-[13px]">
                   <div><p className="text-[10px] sm:text-[11px] text-gray-400 uppercase tracking-widest font-semibold mb-0.5 sm:mb-1">Email</p><p className="text-gray-800 font-medium break-all">{selectedCandidate.email}</p></div>

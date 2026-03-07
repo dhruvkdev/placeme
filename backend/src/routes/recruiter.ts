@@ -393,12 +393,13 @@ router.get('/colleges', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * POST /recruiter/jobs
- * Creates a new job listing for ALL colleges with a registered T&P Profile.
+ * Creates a new job listing for selected colleges (or all if none specified).
+ * Body: { title, description, location, minCgpa, type, ctc, branches, collegeIds? }
  */
 router.post('/jobs', async (req: Request, res: Response): Promise<void> => {
     try {
         const recruiterId = req.user!.id;
-        const { title, description, location, minCgpa, type, ctc, branches } = req.body;
+        const { title, description, location, minCgpa, type, ctc, branches, collegeIds } = req.body;
 
         if (!title || !description) {
             res.status(400).json({ error: 'Title and description are required' });
@@ -429,15 +430,29 @@ router.post('/jobs', async (req: Request, res: Response): Promise<void> => {
             .innerJoin(schema.tnpProfiles, eq(schema.tnpProfiles.collegeId, schema.colleges.id));
 
         // Deduplicate in case there are multiple TNPs per college
-        const uniqueCollegeIds = Array.from(new Set(registeredColleges.map(c => c.id)));
+        const allCollegeIds = Array.from(new Set(registeredColleges.map(c => c.id)));
 
-        if (uniqueCollegeIds.length === 0) {
+        if (allCollegeIds.length === 0) {
             res.status(400).json({ error: 'No colleges are currently registered on the platform.' });
             return;
         }
 
-        // 2. Prepare bulk insert data
-        const jobsData = uniqueCollegeIds.map(collegeId => ({
+        // 2. Determine target colleges — use selected if provided, else all
+        let targetCollegeIds: string[];
+        if (collegeIds && Array.isArray(collegeIds) && collegeIds.length > 0) {
+            // Validate that all selected colleges actually have a T&P
+            const invalidIds = collegeIds.filter((id: string) => !allCollegeIds.includes(id));
+            if (invalidIds.length > 0) {
+                res.status(400).json({ error: 'Some selected colleges are not registered on the platform.' });
+                return;
+            }
+            targetCollegeIds = collegeIds;
+        } else {
+            targetCollegeIds = allCollegeIds;
+        }
+
+        // 3. Prepare bulk insert data
+        const jobsData = targetCollegeIds.map(collegeId => ({
             recruiterId,
             collegeId,
             title,
@@ -448,13 +463,17 @@ router.post('/jobs', async (req: Request, res: Response): Promise<void> => {
             state: 'SUBMITTED' as const // Awaiting T&P approval
         }));
 
-        // 3. Bulk Insert
+        // 4. Bulk Insert
         const insertedJobs = await db
             .insert(schema.jobs)
             .values(jobsData)
             .returning();
 
-        res.status(201).json({ message: 'Job submitted for approval', job: insertedJobs[0] });
+        res.status(201).json({
+            message: `Job submitted for approval to ${targetCollegeIds.length} campus(es)`,
+            job: insertedJobs[0],
+            submittedToCount: targetCollegeIds.length
+        });
     } catch (err) {
         console.error('Post job error:', err);
         res.status(500).json({ error: 'Internal server error' });
