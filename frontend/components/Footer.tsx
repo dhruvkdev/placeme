@@ -133,12 +133,12 @@ This placeholder content demonstrates the type of information typically included
     });
 
     setIsDrawerOpen(true);
-    document.body.style.overflow = "hidden";
+    
   };
 
   const closeDrawer = () => {
     setIsDrawerOpen(false);
-    document.body.style.overflow = "unset";
+    
   };
 
   const footerLinks = [
