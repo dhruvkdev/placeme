@@ -155,7 +155,7 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
         };
 
         const collegeStudents = await db
-            .select({ id: schema.students.id, state: schema.students.state })
+            .select({ id: schema.students.id, state: schema.students.state, branch: schema.students.branch })
             .from(schema.students)
             .where(eq(schema.students.collegeId, profile.collegeId));
 
@@ -204,7 +204,119 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
             }
         });
 
-        res.json({ stats, pendingApprovals: mappedApprovals });
+        // ==========================================
+        //         ANALYTICS CALCULATIONS
+        // ==========================================
+
+        const analytics = {
+            branchWisePlacements: [] as { branch: string, val: number }[],
+            ctcDistribution: [] as { range: string, h: string, val: number }[],
+            topHiringPartners: [] as { comp: string, count: number, avg: string }[],
+            yoyGrowth: "+ 18.4%" // Static for now
+        };
+
+        // 1. Branch-wise Placements
+        const branchCounts: Record<string, { total: number, placed: number }> = {};
+        collegeStudents.forEach(s => {
+            const branch = s.branch || 'Unknown';
+            if (!branchCounts[branch]) branchCounts[branch] = { total: 0, placed: 0 };
+            branchCounts[branch].total++;
+            if (s.state === 'PLACED') branchCounts[branch].placed++;
+        });
+
+        for (const [branch, counts] of Object.entries(branchCounts)) {
+            if (counts.total > 0) {
+                const percentage = Math.round((counts.placed / counts.total) * 100);
+                analytics.branchWisePlacements.push({ branch, val: percentage });
+            }
+        }
+        analytics.branchWisePlacements.sort((a, b) => b.val - a.val);
+
+        // Fetch accepted offers for CTC and Top Hiring Partners
+        const acceptedOffers = await db
+            .select({
+                jobDesc: schema.jobs.description,
+                jobCtc: schema.jobs.description, // Fallback parsing
+                companyName: schema.companies.name
+            })
+            .from(schema.applications)
+            .innerJoin(schema.jobs, eq(schema.applications.jobId, schema.jobs.id))
+            .leftJoin(schema.recruiters, eq(schema.jobs.recruiterId, schema.recruiters.id))
+            .leftJoin(schema.companies, eq(schema.recruiters.companyId, schema.companies.id))
+            .innerJoin(schema.students, eq(schema.applications.studentId, schema.students.id))
+            .where(
+                and(
+                    eq(schema.students.collegeId, profile.collegeId),
+                    eq(schema.applications.state, 'ACCEPTED')
+                )
+            );
+
+        // 2. CTC Distribution & 3. Top Hiring Partners
+        const ctcRanges = {
+            "< 5 LPA": 0,
+            "5-10 LPA": 0,
+            "10-20 LPA": 0,
+            "20+ LPA": 0
+        };
+        const companyStats: Record<string, { count: number, totalCtc: number, validCtcs: number }> = {};
+        let totalPlacedCtc = 0;
+        let validPlacedCtcCount = 0;
+
+        acceptedOffers.forEach(offer => {
+            const compName = offer.companyName || 'T&P Cell';
+
+            // Try to parse numerical CTC from description
+            let numericalCtc = 0;
+            const descStr = offer.jobDesc || '';
+            const ctcMatch = descStr.match(/CTC:\s*(\d+(\.\d+)?)\s*LPA/i);
+            if (ctcMatch && ctcMatch[1]) {
+                numericalCtc = parseFloat(ctcMatch[1]);
+            }
+
+            // Stats for avg CTC
+            if (numericalCtc > 0) {
+                totalPlacedCtc += numericalCtc;
+                validPlacedCtcCount++;
+
+                // Company specific stats
+                if (!companyStats[compName]) companyStats[compName] = { count: 0, totalCtc: 0, validCtcs: 0 };
+                companyStats[compName].totalCtc += numericalCtc;
+                companyStats[compName].validCtcs++;
+            }
+            if (!companyStats[compName]) companyStats[compName] = { count: 0, totalCtc: 0, validCtcs: 0 };
+            companyStats[compName].count++;
+
+            // Distribution
+            if (numericalCtc > 0 && numericalCtc < 5) ctcRanges["< 5 LPA"]++;
+            else if (numericalCtc >= 5 && numericalCtc < 10) ctcRanges["5-10 LPA"]++;
+            else if (numericalCtc >= 10 && numericalCtc < 20) ctcRanges["10-20 LPA"]++;
+            else if (numericalCtc >= 20) ctcRanges["20+ LPA"]++;
+        });
+
+        // Calculate overall average CTC
+        if (validPlacedCtcCount > 0) {
+            stats.avgCtc = (totalPlacedCtc / validPlacedCtcCount).toFixed(1) + " LPA";
+        }
+
+        // Format CTC Distribution
+        const maxCtcCount = Math.max(1, ...Object.values(ctcRanges));
+        analytics.ctcDistribution = [
+            { range: "< 5 LPA", val: ctcRanges["< 5 LPA"], h: `${Math.max(10, Math.round((ctcRanges["< 5 LPA"] / maxCtcCount) * 100))}%` },
+            { range: "5-10 LPA", val: ctcRanges["5-10 LPA"], h: `${Math.max(10, Math.round((ctcRanges["5-10 LPA"] / maxCtcCount) * 100))}%` },
+            { range: "10-20 LPA", val: ctcRanges["10-20 LPA"], h: `${Math.max(10, Math.round((ctcRanges["10-20 LPA"] / maxCtcCount) * 100))}%` },
+            { range: "20+ LPA", val: ctcRanges["20+ LPA"], h: `${Math.max(10, Math.round((ctcRanges["20+ LPA"] / maxCtcCount) * 100))}%` }
+        ];
+
+        // Format Top Hiring Partners
+        for (const [comp, cStats] of Object.entries(companyStats)) {
+            const avgStr = cStats.validCtcs > 0 ? (cStats.totalCtc / cStats.validCtcs).toFixed(1) + " LPA" : "N/A";
+            analytics.topHiringPartners.push({ comp, count: cStats.count, avg: avgStr });
+        }
+        // Take top 5
+        analytics.topHiringPartners.sort((a, b) => b.count - a.count);
+        analytics.topHiringPartners = analytics.topHiringPartners.slice(0, 5);
+
+        res.json({ stats, pendingApprovals: mappedApprovals, analytics });
     } catch (err) {
         console.error('TNP Dashboard error:', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -599,7 +711,7 @@ router.post('/students/:studentId/reject', async (req: Request, res: Response): 
 
         await db
             .update(schema.students)
-            .set({ state: 'REJECTED' })
+            .set({ state: 'PROFILE_COMPLETED' })
             .where(eq(schema.students.id, studentId));
 
         // Audit trail
@@ -608,7 +720,7 @@ router.post('/students/:studentId/reject', async (req: Request, res: Response): 
             .values({
                 studentId,
                 oldState: 'PENDING_VERIFICATION',
-                newState: 'REJECTED',
+                newState: 'PROFILE_COMPLETED',
                 changedBy: req.user!.id,
             });
 

@@ -1,17 +1,20 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  LayoutDashboard, Briefcase, FileText, User, Bell, 
-  Search, UploadCloud, CheckCircle2, ChevronRight, 
-  Clock, Star, AlertCircle, MapPin, Edit2, Github, Linkedin, Code2, Calendar, TrendingUp, X, Menu
+import { useAuth } from "@/lib/AuthContext";
+import { apiFetch } from "@/lib/api";
+import {
+  LayoutDashboard, Briefcase, FileText, User, Bell,
+  Search, UploadCloud, CheckCircle2, ChevronRight,
+  Clock, Star, AlertCircle, MapPin, Edit2, Github, Linkedin, Code2, Calendar, TrendingUp, X, Menu, Loader2, Save
 } from "lucide-react";
 
 export default function StudentDashboard() {
-  const [activeTab, setActiveTab] = useState("overview"); 
+  const { user, logout } = useAuth();
+  const [activeTab, setActiveTab] = useState("overview");
   const [jobCategory, setJobCategory] = useState("All");
-  
+
   // Interactive States
   const [toast, setToast] = useState(null);
   const [appliedJobs, setAppliedJobs] = useState([]);
@@ -19,8 +22,75 @@ export default function StudentDashboard() {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [selectedApp, setSelectedApp] = useState(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  
+
   const fileInputRef = useRef(null);
+
+  // Profile States
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [studentState, setStudentState] = useState("REGISTERED");
+  const [collegeName, setCollegeName] = useState("");
+  const [studentName, setStudentName] = useState("");
+  const [profileForm, setProfileForm] = useState({
+    cgpa: "",
+    branch: "",
+    graduationYear: "",
+    github: "",
+    linkedin: "",
+    leetcode: "",
+  });
+
+  // Fetch student profile on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch("/student/profile");
+        if (res.ok) {
+          const data = await res.json();
+          setStudentState(data.student?.state || "REGISTERED");
+          setCollegeName(data.college?.name || "");
+          setStudentName(user?.name || "");
+          setProfileForm({
+            cgpa: data.student?.cgpa || "",
+            branch: data.student?.branch || "",
+            graduationYear: data.student?.graduationYear?.toString() || "",
+            github: data.student?.github || "",
+            linkedin: data.student?.linkedin || "",
+            leetcode: data.student?.leetcode || "",
+          });
+        }
+      } catch {
+        // Profile not found yet (new student)
+      } finally {
+        setProfileLoading(false);
+      }
+    })();
+  }, [user]);
+
+  const handleProfileSave = async () => {
+    if (!profileForm.cgpa || !profileForm.branch || !profileForm.graduationYear) {
+      showToast("Please fill in CGPA, Branch, and Graduation Year.");
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const res = await apiFetch("/student/profile", {
+        method: "PUT",
+        body: JSON.stringify(profileForm),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setStudentState("PENDING_VERIFICATION");
+        showToast("Profile submitted for verification!");
+      } else {
+        showToast(data.error || "Failed to save profile.");
+      }
+    } catch {
+      showToast("Failed to connect to server.");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   // Helper to show interactive toast notifications
   const showToast = (message) => {
@@ -33,49 +103,95 @@ export default function StudentDashboard() {
     setIsMobileMenuOpen(false);
   };
 
+  const isProfileLocked = studentState === "PENDING_VERIFICATION" || studentState === "VERIFIED";
+
+  // Jobs state
+  const [realJobs, setRealJobs] = useState([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [applyingJobId, setApplyingJobId] = useState(null);
+
+  // Fetch jobs and applications
+  useEffect(() => {
+    if (!profileLoading) {
+      fetchJobs();
+      fetchApplications();
+    }
+  }, [profileLoading]);
+
+  const fetchJobs = async () => {
+    setJobsLoading(true);
+    try {
+      const res = await apiFetch("/student/jobs");
+      if (res.ok) {
+        const data = await res.json();
+        setRealJobs(data.jobs || []);
+      }
+    } catch { /* silently fail */ }
+    setJobsLoading(false);
+  };
+
+  const fetchApplications = async () => {
+    try {
+      const res = await apiFetch("/student/applications");
+      if (res.ok) {
+        const data = await res.json();
+        const appliedIds = (data.applications || []).map(a => a.jobId || a.id);
+        setAppliedJobs(appliedIds);
+      }
+    } catch { /* silently fail */ }
+  };
+
   // Mock Data
   const stats = {
     atsScore: 82,
-    applications: 4 + appliedJobs.length,
-    interviews: 1,
+    applications: appliedJobs.length,
+    interviews: 0,
     profileCompleteness: 95
   };
 
-  const jobListings = [
-    { id: 1, department: "Engineering", role: "Forward Deployed Engineer", location: "Remote / Hyderabad", chances: 92 },
-    { id: 2, department: "Engineering", role: "Principal Software Engineer", location: "Remote / Hyderabad", chances: 88 },
-    { id: 3, department: "Engineering", role: "Associate Software Engineer", location: "Remote / Hyderabad", chances: 75 },
-    { id: 4, department: "Engineering", role: "Software Development Engineer (Intern)", location: "Remote / Hyderabad", chances: 81 },
-    { id: 5, department: "Business Development", role: "Business Development Intern", location: "Remote / Hyderabad", chances: 64 },
-    { id: 6, department: "Engineering", role: "Software Development Engineer", location: "Remote / Hyderabad", chances: 85 },
-  ];
+
 
   const applicationsDetailed = [
-    { 
-      id: 1, company: "Amazon", role: "Software Development Engineer Intern", 
-      appliedDate: "Oct 24, 2026", location: "Bangalore", 
-      stages: ["Applied", "Online Test", "Interview", "Offer"], currentStage: 2, status: "Interview Scheduled for Nov 2" 
+    {
+      id: 1, company: "Amazon", role: "Software Development Engineer Intern",
+      appliedDate: "Oct 24, 2026", location: "Bangalore",
+      stages: ["Applied", "Online Test", "Interview", "Offer"], currentStage: 2, status: "Interview Scheduled for Nov 2"
     },
-    { 
-      id: 2, company: "Goldman Sachs", role: "Summer Analyst", 
-      appliedDate: "Oct 20, 2026", location: "Hyderabad", 
-      stages: ["Applied", "Online Test", "Interview", "Offer"], currentStage: 1, status: "Shortlisted for Test" 
+    {
+      id: 2, company: "Goldman Sachs", role: "Summer Analyst",
+      appliedDate: "Oct 20, 2026", location: "Hyderabad",
+      stages: ["Applied", "Online Test", "Interview", "Offer"], currentStage: 1, status: "Shortlisted for Test"
     },
-    { 
-      id: 3, company: "TCS", role: "Digital Profile", 
-      appliedDate: "Oct 15, 2026", location: "Pan India", 
-      stages: ["Applied", "Online Test", "Interview", "Offer"], currentStage: 0, status: "Under Review" 
+    {
+      id: 3, company: "TCS", role: "Digital Profile",
+      appliedDate: "Oct 15, 2026", location: "Pan India",
+      stages: ["Applied", "Online Test", "Interview", "Offer"], currentStage: 0, status: "Under Review"
     },
   ];
 
-  const categories = ["All", "Engineering", "Marketing", "HR & Operations", "Business Development"];
-  const filteredJobs = jobCategory === "All" ? jobListings : jobListings.filter(job => job.department === jobCategory);
+
 
   // Handlers
-  const handleApply = (jobId) => {
-    if (!appliedJobs.includes(jobId)) {
-      setAppliedJobs([...appliedJobs, jobId]);
-      showToast("Application submitted successfully!");
+  const handleApply = async (jobId) => {
+    if (studentState !== "VERIFIED") {
+      showToast("Your profile must be verified before applying.");
+      return;
+    }
+    if (appliedJobs.includes(jobId)) return;
+    setApplyingJobId(jobId);
+    try {
+      const res = await apiFetch(`/student/jobs/${jobId}/apply`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setAppliedJobs(prev => [...prev, jobId]);
+        showToast("Application submitted successfully!");
+      } else {
+        showToast(data.error || "Failed to apply.");
+      }
+    } catch {
+      showToast("Failed to connect to server.");
+    } finally {
+      setApplyingJobId(null);
     }
   };
 
@@ -193,187 +309,281 @@ export default function StudentDashboard() {
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mb-6 sm:mb-8 gap-4">
         <div>
           <h2 className="text-2xl sm:text-3xl font-medium text-[#1A1A1A] tracking-tight">Open <span className="font-serif italic text-[#6B99A8]">Roles</span></h2>
-        </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-          <input type="text" placeholder="Search roles, companies..." className="w-full pl-9 pr-4 py-2 text-[13px] sm:text-sm border border-gray-200 focus:outline-none focus:border-[#6B99A8] rounded-sm" />
-        </div>
-      </div>
-      
-      {/* Filters and Categories */}
-      <div className="flex flex-col md:flex-row md:items-center gap-4 sm:gap-6 border-b border-gray-200 mb-6 sm:mb-8">
-        <div className="pb-0 md:pb-0 md:mb-[17px]">
-          <select className="w-full sm:w-auto border border-gray-200 rounded-sm px-3 sm:px-4 py-2 text-[13px] sm:text-sm text-gray-700 outline-none hover:border-gray-300 transition-colors bg-white">
-            <option>All Locations</option>
-            <option>Remote</option>
-            <option>Hyderabad</option>
-          </select>
-        </div>
-        <div className="flex gap-4 sm:gap-8 text-[13px] sm:text-[15px] font-medium text-[#4A5560] overflow-x-auto no-scrollbar w-full pb-2 md:pb-0">
-          {categories.map((cat) => (
-            <button key={cat} onClick={() => setJobCategory(cat)} className={`pb-2 md:pb-4 whitespace-nowrap transition-colors border-b-2 -mb-[1px] ${jobCategory === cat ? 'text-[#5B8D9E] border-[#5B8D9E]' : 'border-transparent hover:text-[#1A1A1A]'}`}>
-              {cat}
-            </button>
-          ))}
+          <p className="text-sm text-gray-500 mt-1">{realJobs.length} jobs available at your college</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
-        {filteredJobs.map((job) => {
-          const isApplied = appliedJobs.includes(job.id);
-          
-          return (
-            <div key={job.id} className="bg-white border border-gray-200 p-5 sm:p-8 flex flex-col justify-between hover:shadow-[0_4px_20px_rgba(0,0,0,0.04)] transition-all">
-              <div>
-                <div className="flex flex-wrap justify-between items-start gap-2 mb-4 sm:mb-5">
-                  <span className="inline-block px-2 sm:px-3 py-1 rounded-full bg-[#f4f8f9] text-[#5B8D9E] text-[10px] sm:text-[11px] font-medium tracking-wide">
-                    {job.department}
-                  </span>
-                  <span className={`flex items-center gap-1 text-[10px] sm:text-[11px] font-medium px-2 py-1 rounded ${job.chances >= 80 ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}>
-                    <TrendingUp size={10} className="sm:w-[12px] sm:h-[12px]"/> {job.chances}% Chances
-                  </span>
+      {studentState !== "VERIFIED" && (
+        <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-sm flex items-start gap-3">
+          <AlertCircle size={16} className="text-orange-500 mt-0.5 shrink-0" />
+          <p className="text-[12px] sm:text-[13px] text-orange-700">
+            Your profile must be <strong>verified</strong> by your T&P cell before you can apply to jobs.
+          </p>
+        </div>
+      )}
+
+      {jobsLoading ? (
+        <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
+      ) : realJobs.length === 0 ? (
+        <div className="bg-white border border-gray-200 p-10 text-center">
+          <Briefcase size={32} className="mx-auto text-gray-300 mb-3" />
+          <p className="text-sm text-gray-500">No jobs posted for your college yet. Check back soon!</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+          {realJobs.map((job) => {
+            const isApplied = appliedJobs.includes(job.id);
+            const isApplying = applyingJobId === job.id;
+
+            return (
+              <div key={job.id} className="bg-white border border-gray-200 p-5 sm:p-8 flex flex-col justify-between hover:shadow-[0_4px_20px_rgba(0,0,0,0.04)] transition-all">
+                <div>
+                  <div className="flex flex-wrap justify-between items-start gap-2 mb-3 sm:mb-4">
+                    <span className="inline-block px-2 sm:px-3 py-1 rounded-full bg-[#f4f8f9] text-[#5B8D9E] text-[10px] sm:text-[11px] font-medium tracking-wide">
+                      {job.companyName}
+                    </span>
+                    {job.isTnpPosted && (
+                      <span className="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100">T&P</span>
+                    )}
+                  </div>
+                  <h3 className="text-lg sm:text-[1.35rem] font-medium text-[#5B8D9E] mb-2 leading-tight tracking-tight">{job.title}</h3>
+                  <div className="flex flex-wrap gap-2 text-[10px] sm:text-[11px] text-gray-500 mb-4">
+                    {job.type && job.type !== 'Full-Time' && <span className="bg-gray-100 px-2 py-0.5 rounded">{job.type}</span>}
+                    {job.ctc && job.ctc !== 'N/A' && <span className="bg-gray-100 px-2 py-0.5 rounded">{job.ctc}</span>}
+                    {job.minCgpa && <span className="bg-gray-100 px-2 py-0.5 rounded">Min CGPA: {job.minCgpa}</span>}
+                    {job.branches && job.branches.length > 0 && (
+                      <span className="bg-gray-100 px-2 py-0.5 rounded">{Array.isArray(job.branches) ? job.branches.join(', ') : job.branches}</span>
+                    )}
+                  </div>
                 </div>
-                <h3 className="text-lg sm:text-[1.35rem] font-medium text-[#5B8D9E] mb-6 sm:mb-8 leading-tight tracking-tight">{job.role}</h3>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 sm:gap-0 mt-2">
+                  <div className="flex items-center gap-1.5 text-[#6b7280] text-[12px] sm:text-[13px]">
+                    <MapPin size={14} className="shrink-0" /><span>{job.location}</span>
+                  </div>
+                  <button
+                    onClick={() => handleApply(job.id)}
+                    disabled={isApplied || isApplying || studentState !== "VERIFIED"}
+                    className={`border w-full sm:w-auto px-6 py-2 text-[12px] sm:text-[13px] font-medium rounded-sm transition-colors flex items-center justify-center gap-2 ${isApplied
+                      ? 'bg-[#f4f8f9] text-[#5B8D9E] border-[#6B99A8]/30 cursor-not-allowed'
+                      : studentState !== "VERIFIED"
+                        ? 'border-gray-200 text-gray-400 cursor-not-allowed bg-gray-50'
+                        : 'border-gray-300 text-gray-800 hover:bg-gray-50'
+                      }`}
+                  >
+                    {isApplying ? <Loader2 size={14} className="animate-spin" /> : isApplied ? 'Applied ✓' : studentState !== "VERIFIED" ? 'Verify to Apply' : 'Apply Now'}
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 sm:gap-0 mt-4">
-                <div className="flex items-center gap-1.5 text-[#6b7280] text-[12px] sm:text-[13px]">
-                  <MapPin size={14} className="shrink-0" /><span>{job.location}</span>
+            );
+          })}
+        </div>
+      )}
+    </motion.div>
+  );
+
+  const stateLabels = {
+    REGISTERED: { text: "Not Submitted", color: "bg-gray-100 text-gray-600 border-gray-200" },
+    PROFILE_COMPLETED: { text: "Profile Returned — Please Re-submit", color: "bg-orange-50 text-orange-700 border-orange-200" },
+    PENDING_VERIFICATION: { text: "Pending Verification", color: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+    VERIFIED: { text: "Verified", color: "bg-green-50 text-green-700 border-green-200" },
+    REJECTED: { text: "Rejected — Please Re-submit", color: "bg-red-50 text-red-700 border-red-200" },
+    PLACED: { text: "Placed", color: "bg-blue-50 text-blue-700 border-blue-200" },
+  };
+
+  const currentStateInfo = stateLabels[studentState] || stateLabels.REGISTERED;
+
+  const renderProfile = () => {
+    if (profileLoading) {
+      return (
+        <div className="flex justify-center py-20">
+          <Loader2 size={24} className="animate-spin text-[#6B99A8]" />
+        </div>
+      );
+    }
+
+    const initials = (studentName || user?.email || "S")
+      .split(" ")
+      .map(w => w[0])
+      .join("")
+      .toUpperCase()
+      .substring(0, 2);
+
+    return (
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="w-full">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mb-6 sm:mb-8 gap-4">
+          <div>
+            <h2 className="text-2xl sm:text-3xl font-medium text-[#1A1A1A] tracking-tight">Profile <span className="font-serif italic text-[#6B99A8]">Management</span></h2>
+            <p className="text-[13px] sm:text-[15px] text-gray-500 mt-1 sm:mt-2">Complete your academic details to get verified by your T&P cell.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`text-[10px] sm:text-[11px] font-semibold px-3 py-1.5 rounded border uppercase tracking-wider ${currentStateInfo.color}`}>
+              {currentStateInfo.text}
+            </span>
+            {!isProfileLocked && (
+              <button
+                onClick={handleProfileSave}
+                disabled={profileSaving}
+                className="bg-[#1A1A1A] text-white px-5 sm:px-6 py-2 text-[12px] sm:text-[13px] font-medium rounded-sm hover:bg-black transition-colors flex items-center justify-center gap-2 w-full sm:w-auto disabled:opacity-60"
+              >
+                {profileSaving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Submit Profile</>}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {isProfileLocked && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-6 p-4 bg-[#f4f8f9] border border-[#6B99A8]/20 rounded-sm flex items-start gap-3">
+            <AlertCircle size={16} className="text-[#6B99A8] mt-0.5 shrink-0" />
+            <p className="text-[12px] sm:text-[13px] text-gray-600">
+              {studentState === "VERIFIED"
+                ? "Your profile has been verified by your T&P cell. No further edits are allowed."
+                : "Your profile is currently under review by your T&P cell. You cannot make changes until it is reviewed."}
+            </p>
+          </motion.div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
+          <div className="lg:col-span-1 space-y-6">
+            <div className="bg-white border border-gray-200 p-6 sm:p-8 flex flex-col items-center text-center">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-tr from-[#6B99A8] to-[#92b5c1] flex items-center justify-center text-white text-2xl sm:text-3xl font-light tracking-wider mb-4 shadow-sm">
+                {initials}
+              </div>
+              <h3 className="text-lg sm:text-xl font-medium text-[#1A1A1A]">{studentName || "Student"}</h3>
+              <p className="text-[12px] sm:text-[13px] text-gray-500 mt-1">{profileForm.branch || "Branch not set"}</p>
+              <div className="w-full border-t border-gray-100 mt-6 pt-6 space-y-4 text-left">
+                <div>
+                  <label className="text-[10px] sm:text-[11px] text-gray-400 uppercase tracking-widest font-semibold block mb-1">Email (Verified)</label>
+                  <p className="text-[12px] sm:text-[13px] text-gray-800 font-medium">{user?.email || "—"}</p>
                 </div>
-                <button 
-                  onClick={() => handleApply(job.id)}
-                  disabled={isApplied}
-                  className={`border w-full sm:w-auto px-6 py-2 text-[12px] sm:text-[13px] font-medium rounded-sm transition-colors ${
-                    isApplied 
-                      ? 'bg-[#f4f8f9] text-[#5B8D9E] border-[#6B99A8]/30 cursor-not-allowed' 
-                      : 'border-gray-300 text-gray-800 hover:bg-gray-50'
-                  }`}
-                >
-                  {isApplied ? 'Applied ✓' : 'Apply Now'}
+                <div>
+                  <label className="text-[10px] sm:text-[11px] text-gray-400 uppercase tracking-widest font-semibold block mb-1">College</label>
+                  <p className="text-[12px] sm:text-[13px] text-gray-800 font-medium">{collegeName || "—"}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white border border-gray-200 p-5 sm:p-8">
+              <h4 className="text-[14px] sm:text-[15px] font-medium text-[#1A1A1A] mb-4 sm:mb-6 border-b border-gray-100 pb-3 sm:pb-4">Academic Background</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                <div>
+                  <label className="block text-[11px] sm:text-xs font-medium text-gray-500 mb-1.5">University / College</label>
+                  <input type="text" readOnly value={collegeName || "—"} className="w-full border border-gray-200 bg-gray-50 p-2.5 sm:p-3 text-[12px] sm:text-[13px] text-gray-600 outline-none rounded-sm cursor-not-allowed" />
+                </div>
+                <div>
+                  <label className="block text-[11px] sm:text-xs font-medium text-gray-500 mb-1.5">Branch <span className="text-red-400">*</span></label>
+                  <input
+                    type="text"
+                    value={profileForm.branch}
+                    onChange={(e) => setProfileForm({ ...profileForm, branch: e.target.value })}
+                    disabled={isProfileLocked}
+                    placeholder="e.g. Computer Science"
+                    className={`w-full border p-2.5 sm:p-3 text-[12px] sm:text-[13px] outline-none rounded-sm transition-colors ${isProfileLocked ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed' : 'border-gray-200 focus:border-[#6B99A8] focus:ring-1 focus:ring-[#6B99A8]/20'}`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] sm:text-xs font-medium text-gray-500 mb-1.5">Graduation Year <span className="text-red-400">*</span></label>
+                  <input
+                    type="number"
+                    value={profileForm.graduationYear}
+                    onChange={(e) => setProfileForm({ ...profileForm, graduationYear: e.target.value })}
+                    disabled={isProfileLocked}
+                    placeholder="e.g. 2026"
+                    className={`w-full border p-2.5 sm:p-3 text-[12px] sm:text-[13px] outline-none rounded-sm transition-colors ${isProfileLocked ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed' : 'border-gray-200 focus:border-[#6B99A8] focus:ring-1 focus:ring-[#6B99A8]/20'}`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] sm:text-xs font-medium text-gray-500 mb-1.5">Current CGPA <span className="text-red-400">*</span></label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="10"
+                    value={profileForm.cgpa}
+                    onChange={(e) => setProfileForm({ ...profileForm, cgpa: e.target.value })}
+                    disabled={isProfileLocked}
+                    placeholder="e.g. 8.94"
+                    className={`w-full border p-2.5 sm:p-3 text-[12px] sm:text-[13px] outline-none rounded-sm transition-colors ${isProfileLocked ? 'border-[#6B99A8]/30 bg-[#f4f8f9]/50 text-[#5B8D9E] font-medium cursor-not-allowed' : 'border-gray-200 focus:border-[#6B99A8] focus:ring-1 focus:ring-[#6B99A8]/20'}`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 p-5 sm:p-8">
+              <h4 className="text-[14px] sm:text-[15px] font-medium text-[#1A1A1A] mb-4 sm:mb-6 border-b border-gray-100 pb-3 sm:pb-4">Portfolio & Links</h4>
+              <div className="space-y-4">
+                <div className="flex items-center relative">
+                  <div className="absolute left-0 top-0 bottom-0 w-10 sm:w-12 flex items-center justify-center bg-gray-50 border border-r-0 border-gray-200 rounded-l-sm">
+                    <Github size={14} className="sm:w-[16px] sm:h-[16px] text-gray-600" />
+                  </div>
+                  <input
+                    type="url"
+                    value={profileForm.github}
+                    onChange={(e) => setProfileForm({ ...profileForm, github: e.target.value })}
+                    disabled={isProfileLocked}
+                    placeholder="https://github.com/username"
+                    className={`w-full border pl-12 sm:pl-16 p-2.5 sm:p-3 text-[12px] sm:text-[13px] rounded-sm transition-colors ${isProfileLocked ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed' : 'border-gray-200 focus:outline-none focus:border-[#6B99A8]'}`}
+                  />
+                </div>
+                <div className="flex items-center relative">
+                  <div className="absolute left-0 top-0 bottom-0 w-10 sm:w-12 flex items-center justify-center bg-gray-50 border border-r-0 border-gray-200 rounded-l-sm">
+                    <Linkedin size={14} className="sm:w-[16px] sm:h-[16px] text-gray-600" />
+                  </div>
+                  <input
+                    type="url"
+                    value={profileForm.linkedin}
+                    onChange={(e) => setProfileForm({ ...profileForm, linkedin: e.target.value })}
+                    disabled={isProfileLocked}
+                    placeholder="https://linkedin.com/in/username"
+                    className={`w-full border pl-12 sm:pl-16 p-2.5 sm:p-3 text-[12px] sm:text-[13px] rounded-sm transition-colors ${isProfileLocked ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed' : 'border-gray-200 focus:outline-none focus:border-[#6B99A8]'}`}
+                  />
+                </div>
+                <div className="flex items-center relative">
+                  <div className="absolute left-0 top-0 bottom-0 w-10 sm:w-12 flex items-center justify-center bg-gray-50 border border-r-0 border-gray-200 rounded-l-sm">
+                    <Code2 size={14} className="sm:w-[16px] sm:h-[16px] text-gray-600" />
+                  </div>
+                  <input
+                    type="url"
+                    value={profileForm.leetcode}
+                    onChange={(e) => setProfileForm({ ...profileForm, leetcode: e.target.value })}
+                    disabled={isProfileLocked}
+                    placeholder="https://leetcode.com/username"
+                    className={`w-full border pl-12 sm:pl-16 p-2.5 sm:p-3 text-[12px] sm:text-[13px] rounded-sm transition-colors ${isProfileLocked ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed' : 'border-gray-200 focus:outline-none focus:border-[#6B99A8]'}`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 p-5 sm:p-8">
+              <div className="flex justify-between items-center mb-4 sm:mb-6 border-b border-gray-100 pb-3 sm:pb-4">
+                <h4 className="text-[14px] sm:text-[15px] font-medium text-[#1A1A1A]">Core Skills</h4>
+                <button onClick={handleAddSkill} className="text-[11px] sm:text-xs text-[#6B99A8] font-medium hover:underline transition-all">
+                  + Add Skill
                 </button>
               </div>
-            </div>
-          );
-        })}
-      </div>
-    </motion.div>
-  );
-
-  const renderProfile = () => (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="w-full">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mb-6 sm:mb-8 gap-4">
-        <div>
-          <h2 className="text-2xl sm:text-3xl font-medium text-[#1A1A1A] tracking-tight">Profile <span className="font-serif italic text-[#6B99A8]">Management</span></h2>
-          <p className="text-[13px] sm:text-[15px] text-gray-500 mt-1 sm:mt-2">Manage your verified data, academics, and portfolio links.</p>
-        </div>
-        <button 
-          onClick={() => showToast("Profile changes saved successfully!")}
-          className="bg-[#1A1A1A] text-white px-5 sm:px-6 py-2 text-[12px] sm:text-[13px] font-medium rounded-sm hover:bg-black transition-colors flex items-center justify-center gap-2 w-full sm:w-auto"
-        >
-          Save Changes
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white border border-gray-200 p-6 sm:p-8 flex flex-col items-center text-center">
-            <div className="relative cursor-pointer" onClick={() => showToast("Avatar upload modal opened.")}>
-              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-tr from-[#6B99A8] to-[#92b5c1] flex items-center justify-center text-white text-2xl sm:text-3xl font-light tracking-wider mb-4 shadow-sm hover:opacity-90 transition-opacity">
-                JD
-              </div>
-              <div className="absolute bottom-4 right-0 bg-white border border-gray-200 p-1.5 rounded-full text-gray-500 hover:text-black shadow-sm transition-colors">
-                <Edit2 size={12} className="sm:w-[14px] sm:h-[14px]" />
-              </div>
-            </div>
-            <h3 className="text-lg sm:text-xl font-medium text-[#1A1A1A]">John Doe</h3>
-            <p className="text-[12px] sm:text-[13px] text-gray-500 mt-1">Computer Science & Engineering</p>
-            <div className="w-full border-t border-gray-100 mt-6 pt-6 space-y-4 text-left">
-              <div>
-                <label className="text-[10px] sm:text-[11px] text-gray-400 uppercase tracking-widest font-semibold block mb-1">Email (Verified)</label>
-                <p className="text-[12px] sm:text-[13px] text-gray-800 font-medium">john.doe@college.edu</p>
-              </div>
-              <div>
-                <label className="text-[10px] sm:text-[11px] text-gray-400 uppercase tracking-widest font-semibold block mb-1">Phone</label>
-                <input type="text" defaultValue="+91 98765 43210" className="w-full text-[12px] sm:text-[13px] text-gray-800 font-medium border-b border-transparent hover:border-gray-200 focus:border-[#6B99A8] focus:outline-none bg-transparent py-1 transition-colors" />
+              <div className="flex flex-wrap gap-2">
+                <AnimatePresence>
+                  {skills.map(skill => (
+                    <motion.span
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      key={skill}
+                      className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-gray-50 border border-gray-200 text-[11px] sm:text-[12px] text-gray-700 rounded-sm flex items-center gap-1.5 sm:gap-2 group cursor-pointer hover:border-red-200 hover:bg-red-50 transition-colors"
+                      onClick={() => handleRemoveSkill(skill)}
+                    >
+                      {skill} <X size={10} className="sm:w-[12px] sm:h-[12px] text-gray-400 group-hover:text-red-400" />
+                    </motion.span>
+                  ))}
+                </AnimatePresence>
               </div>
             </div>
           </div>
         </div>
-
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white border border-gray-200 p-5 sm:p-8">
-            <h4 className="text-[14px] sm:text-[15px] font-medium text-[#1A1A1A] mb-4 sm:mb-6 border-b border-gray-100 pb-3 sm:pb-4">Academic Background</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              <div>
-                <label className="block text-[11px] sm:text-xs font-medium text-gray-500 mb-1.5">University / College</label>
-                <input type="text" readOnly defaultValue="National Institute of Technology" className="w-full border border-gray-200 bg-gray-50 p-2.5 sm:p-3 text-[12px] sm:text-[13px] text-gray-600 outline-none rounded-sm" />
-              </div>
-              <div>
-                <label className="block text-[11px] sm:text-xs font-medium text-gray-500 mb-1.5">Degree & Branch</label>
-                <input type="text" readOnly defaultValue="B.Tech - CSE" className="w-full border border-gray-200 bg-gray-50 p-2.5 sm:p-3 text-[12px] sm:text-[13px] text-gray-600 outline-none rounded-sm" />
-              </div>
-              <div>
-                <label className="block text-[11px] sm:text-xs font-medium text-gray-500 mb-1.5">Graduation Year</label>
-                <input type="text" readOnly defaultValue="2026" className="w-full border border-gray-200 bg-gray-50 p-2.5 sm:p-3 text-[12px] sm:text-[13px] text-gray-600 outline-none rounded-sm" />
-              </div>
-              <div>
-                <label className="block text-[11px] sm:text-xs font-medium text-gray-500 mb-1.5">Current CGPA (Verified)</label>
-                <input type="text" readOnly defaultValue="8.94 / 10.0" className="w-full border border-[#6B99A8]/30 bg-[#f4f8f9]/50 p-2.5 sm:p-3 text-[12px] sm:text-[13px] text-[#5B8D9E] font-medium outline-none rounded-sm" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white border border-gray-200 p-5 sm:p-8">
-            <h4 className="text-[14px] sm:text-[15px] font-medium text-[#1A1A1A] mb-4 sm:mb-6 border-b border-gray-100 pb-3 sm:pb-4">Portfolio & Links</h4>
-            <div className="space-y-4">
-              <div className="flex items-center relative">
-                <div className="absolute left-0 top-0 bottom-0 w-10 sm:w-12 flex items-center justify-center bg-gray-50 border border-r-0 border-gray-200 rounded-l-sm">
-                  <Github size={14} className="sm:w-[16px] sm:h-[16px] text-gray-600" />
-                </div>
-                <input type="url" defaultValue="https://github.com/johndoe" className="w-full border border-gray-200 pl-12 sm:pl-16 p-2.5 sm:p-3 text-[12px] sm:text-[13px] focus:outline-none focus:border-[#6B99A8] rounded-sm transition-colors" />
-              </div>
-              <div className="flex items-center relative">
-                <div className="absolute left-0 top-0 bottom-0 w-10 sm:w-12 flex items-center justify-center bg-gray-50 border border-r-0 border-gray-200 rounded-l-sm">
-                  <Linkedin size={14} className="sm:w-[16px] sm:h-[16px] text-gray-600" />
-                </div>
-                <input type="url" defaultValue="https://linkedin.com/in/johndoe" className="w-full border border-gray-200 pl-12 sm:pl-16 p-2.5 sm:p-3 text-[12px] sm:text-[13px] focus:outline-none focus:border-[#6B99A8] rounded-sm transition-colors" />
-              </div>
-              <div className="flex items-center relative">
-                <div className="absolute left-0 top-0 bottom-0 w-10 sm:w-12 flex items-center justify-center bg-gray-50 border border-r-0 border-gray-200 rounded-l-sm">
-                  <Code2 size={14} className="sm:w-[16px] sm:h-[16px] text-gray-600" />
-                </div>
-                <input type="url" placeholder="LeetCode / Codeforces Profile URL" className="w-full border border-gray-200 pl-12 sm:pl-16 p-2.5 sm:p-3 text-[12px] sm:text-[13px] focus:outline-none focus:border-[#6B99A8] rounded-sm transition-colors" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white border border-gray-200 p-5 sm:p-8">
-            <div className="flex justify-between items-center mb-4 sm:mb-6 border-b border-gray-100 pb-3 sm:pb-4">
-               <h4 className="text-[14px] sm:text-[15px] font-medium text-[#1A1A1A]">Core Skills</h4>
-               <button onClick={handleAddSkill} className="text-[11px] sm:text-xs text-[#6B99A8] font-medium hover:underline transition-all">
-                 + Add Skill
-               </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <AnimatePresence>
-                {skills.map(skill => (
-                  <motion.span 
-                    initial={{ opacity: 0, scale: 0.8 }} 
-                    animate={{ opacity: 1, scale: 1 }} 
-                    exit={{ opacity: 0, scale: 0.8 }} 
-                    key={skill} 
-                    className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-gray-50 border border-gray-200 text-[11px] sm:text-[12px] text-gray-700 rounded-sm flex items-center gap-1.5 sm:gap-2 group cursor-pointer hover:border-red-200 hover:bg-red-50 transition-colors"
-                    onClick={() => handleRemoveSkill(skill)}
-                  >
-                    {skill} <X size={10} className="sm:w-[12px] sm:h-[12px] text-gray-400 group-hover:text-red-400" />
-                  </motion.span>
-                ))}
-              </AnimatePresence>
-            </div>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
+      </motion.div>
+    );
+  };
 
   const renderApplications = () => (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="w-full">
@@ -394,52 +604,51 @@ export default function StudentDashboard() {
                 </div>
                 <div className="overflow-hidden">
                   <h3 className="text-sm sm:text-base font-semibold text-[#1A1A1A] truncate">{app.company}</h3>
-                  <p className="text-[11px] sm:text-[12px] text-gray-500 flex items-center gap-1 mt-0.5 truncate"><MapPin size={10}/> {app.location}</p>
+                  <p className="text-[11px] sm:text-[12px] text-gray-500 flex items-center gap-1 mt-0.5 truncate"><MapPin size={10} /> {app.location}</p>
                 </div>
               </div>
               <h4 className="text-[13px] sm:text-[14px] font-medium text-[#5B8D9E] leading-snug">{app.role}</h4>
-              <p className="text-[10px] sm:text-[11px] text-gray-400 mt-1 flex items-center gap-1"><Calendar size={10}/> Applied on {app.appliedDate}</p>
+              <p className="text-[10px] sm:text-[11px] text-gray-400 mt-1 flex items-center gap-1"><Calendar size={10} /> Applied on {app.appliedDate}</p>
             </div>
 
             <div className="w-full lg:w-2/3 flex flex-col justify-center mt-2 lg:mt-0">
-               {/* Progress Tracker */}
-               <div className="flex items-center justify-between relative mb-2 w-full">
-                 <div className="absolute left-[10%] right-[10%] top-1/2 h-[2px] bg-gray-100 -z-10 -translate-y-1/2"></div>
-                 <div 
-                   className="absolute left-[10%] top-1/2 h-[2px] bg-[#6B99A8] -z-10 -translate-y-1/2 transition-all duration-500"
-                   style={{ width: `${(app.currentStage / (app.stages.length - 1)) * 80}%` }}
-                 ></div>
+              {/* Progress Tracker */}
+              <div className="flex items-center justify-between relative mb-2 w-full">
+                <div className="absolute left-[10%] right-[10%] top-1/2 h-[2px] bg-gray-100 -z-10 -translate-y-1/2"></div>
+                <div
+                  className="absolute left-[10%] top-1/2 h-[2px] bg-[#6B99A8] -z-10 -translate-y-1/2 transition-all duration-500"
+                  style={{ width: `${(app.currentStage / (app.stages.length - 1)) * 80}%` }}
+                ></div>
 
-                 {app.stages.map((stage, index) => {
-                   const isActive = index <= app.currentStage;
-                   const isCurrent = index === app.currentStage;
-                   
-                   return (
-                     <div key={stage} className="flex flex-col items-center gap-2 sm:gap-3 bg-white px-1 sm:px-2">
-                       <div className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] border-2 transition-colors shrink-0 ${
-                         isActive ? 'bg-[#6B99A8] border-[#6B99A8] text-white' : 'bg-white border-gray-200 text-gray-300'
-                       } ${isCurrent ? 'ring-4 ring-[#6B99A8]/20' : ''}`}>
-                         {isActive ? <CheckCircle2 size={10} className="sm:w-[12px] sm:h-[12px]" strokeWidth={3} /> : index + 1}
-                       </div>
-                       <span className={`text-[8px] sm:text-[10px] font-medium uppercase tracking-wider text-center max-w-[50px] sm:max-w-none ${isActive ? 'text-[#1A1A1A]' : 'text-gray-400'}`}>
-                         {stage}
-                       </span>
-                     </div>
-                   );
-                 })}
-               </div>
-               
-               <div className="mt-5 sm:mt-6 bg-[#f4f8f9] border border-[#6B99A8]/20 px-3 sm:px-4 py-2.5 sm:py-3 rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0">
-                 <span className="text-[11px] sm:text-[12px] font-medium text-[#5B8D9E]">Current Status: {app.status}</span>
-                 {app.currentStage > 0 && app.currentStage < 3 && (
-                   <button 
-                    onClick={() => setSelectedApp(app)} 
+                {app.stages.map((stage, index) => {
+                  const isActive = index <= app.currentStage;
+                  const isCurrent = index === app.currentStage;
+
+                  return (
+                    <div key={stage} className="flex flex-col items-center gap-2 sm:gap-3 bg-white px-1 sm:px-2">
+                      <div className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] border-2 transition-colors shrink-0 ${isActive ? 'bg-[#6B99A8] border-[#6B99A8] text-white' : 'bg-white border-gray-200 text-gray-300'
+                        } ${isCurrent ? 'ring-4 ring-[#6B99A8]/20' : ''}`}>
+                        {isActive ? <CheckCircle2 size={10} className="sm:w-[12px] sm:h-[12px]" strokeWidth={3} /> : index + 1}
+                      </div>
+                      <span className={`text-[8px] sm:text-[10px] font-medium uppercase tracking-wider text-center max-w-[50px] sm:max-w-none ${isActive ? 'text-[#1A1A1A]' : 'text-gray-400'}`}>
+                        {stage}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-5 sm:mt-6 bg-[#f4f8f9] border border-[#6B99A8]/20 px-3 sm:px-4 py-2.5 sm:py-3 rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0">
+                <span className="text-[11px] sm:text-[12px] font-medium text-[#5B8D9E]">Current Status: {app.status}</span>
+                {app.currentStage > 0 && app.currentStage < 3 && (
+                  <button
+                    onClick={() => setSelectedApp(app)}
                     className="text-[10px] sm:text-[11px] bg-white border border-[#6B99A8]/30 px-3 py-1.5 sm:py-1 text-[#5B8D9E] hover:bg-[#6B99A8] hover:text-white transition-colors rounded-sm text-center"
-                   >
-                     View Details
-                   </button>
-                 )}
-               </div>
+                  >
+                    View Details
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -449,70 +658,70 @@ export default function StudentDashboard() {
 
   const renderResume = () => (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-       <div className="mb-6 sm:mb-8">
-          <h2 className="text-2xl sm:text-3xl font-medium text-[#1A1A1A] tracking-tight">AI Resume <span className="font-serif italic text-[#6B99A8]">Assistant</span></h2>
-          <p className="text-[13px] sm:text-[15px] text-gray-500 mt-1 sm:mt-2">Upload your resume to get instant ATS feedback and improvement suggestions.</p>
+      <div className="mb-6 sm:mb-8">
+        <h2 className="text-2xl sm:text-3xl font-medium text-[#1A1A1A] tracking-tight">AI Resume <span className="font-serif italic text-[#6B99A8]">Assistant</span></h2>
+        <p className="text-[13px] sm:text-[15px] text-gray-500 mt-1 sm:mt-2">Upload your resume to get instant ATS feedback and improvement suggestions.</p>
+      </div>
+
+      {/* Hidden File Input */}
+      <input
+        type="file"
+        accept=".pdf,.docx"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        className="hidden"
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+        <div className="md:col-span-2 bg-white border border-gray-200 p-6 sm:p-10 flex flex-col items-center justify-center min-h-[250px] sm:min-h-[350px]">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 bg-[#f4f8f9] rounded-full flex items-center justify-center text-[#6B99A8] mb-4 sm:mb-5">
+            <UploadCloud size={20} className="sm:w-[24px] sm:h-[24px]" />
+          </div>
+          <h3 className="text-sm sm:text-base font-medium text-gray-800 mb-1">Upload latest Resume</h3>
+          <p className="text-[11px] sm:text-xs text-gray-500 mb-6 sm:mb-8">PDF or DOCX, max 5MB</p>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="bg-white border border-gray-300 text-gray-700 px-5 sm:px-6 py-2 sm:py-2.5 text-[13px] sm:text-sm font-medium hover:border-[#6B99A8] hover:text-[#6B99A8] transition-colors rounded-sm"
+          >
+            Select File
+          </button>
+          <p className="text-[10px] sm:text-[11px] text-[#5B8D9E] font-medium mt-6 sm:mt-8 text-center px-4">
+            {uploadedFile ? `Current File: ${uploadedFile}` : "Last uploaded: Swarup_Resume_v4.pdf (2 days ago)"}
+          </p>
         </div>
 
-        {/* Hidden File Input */}
-        <input 
-          type="file" 
-          accept=".pdf,.docx" 
-          ref={fileInputRef} 
-          onChange={handleFileChange} 
-          className="hidden" 
-        />
+        <div className="bg-white border border-gray-200 p-6 sm:p-8 flex flex-col">
+          <h3 className="text-[13px] sm:text-sm font-medium text-[#1A1A1A] mb-6 sm:mb-8 text-center sm:text-left">Current ATS Score</h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
-          <div className="md:col-span-2 bg-white border border-gray-200 p-6 sm:p-10 flex flex-col items-center justify-center min-h-[250px] sm:min-h-[350px]">
-             <div className="w-14 h-14 sm:w-16 sm:h-16 bg-[#f4f8f9] rounded-full flex items-center justify-center text-[#6B99A8] mb-4 sm:mb-5">
-               <UploadCloud size={20} className="sm:w-[24px] sm:h-[24px]" />
-             </div>
-             <h3 className="text-sm sm:text-base font-medium text-gray-800 mb-1">Upload latest Resume</h3>
-             <p className="text-[11px] sm:text-xs text-gray-500 mb-6 sm:mb-8">PDF or DOCX, max 5MB</p>
-             <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="bg-white border border-gray-300 text-gray-700 px-5 sm:px-6 py-2 sm:py-2.5 text-[13px] sm:text-sm font-medium hover:border-[#6B99A8] hover:text-[#6B99A8] transition-colors rounded-sm"
-              >
-               Select File
-             </button>
-             <p className="text-[10px] sm:text-[11px] text-[#5B8D9E] font-medium mt-6 sm:mt-8 text-center px-4">
-               {uploadedFile ? `Current File: ${uploadedFile}` : "Last uploaded: Swarup_Resume_v4.pdf (2 days ago)"}
-             </p>
+          <div className="relative w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-6 sm:mb-8 flex items-center justify-center">
+            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="40" stroke="#f3f4f6" strokeWidth="6" fill="none" />
+              <circle cx="50" cy="50" r="40" stroke="#6B99A8" strokeWidth="6" fill="none" strokeDasharray="251.2" strokeDashoffset={251.2 - (251.2 * stats.atsScore) / 100} className="transition-all duration-1000 ease-out" />
+            </svg>
+            <div className="absolute flex flex-col items-center justify-center">
+              <span className="text-2xl sm:text-3xl font-medium text-[#1A1A1A]">{stats.atsScore}</span>
+              <span className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-widest mt-0.5 sm:mt-1">/ 100</span>
+            </div>
           </div>
 
-          <div className="bg-white border border-gray-200 p-6 sm:p-8 flex flex-col">
-            <h3 className="text-[13px] sm:text-sm font-medium text-[#1A1A1A] mb-6 sm:mb-8 text-center sm:text-left">Current ATS Score</h3>
-            
-            <div className="relative w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-6 sm:mb-8 flex items-center justify-center">
-              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="40" stroke="#f3f4f6" strokeWidth="6" fill="none" />
-                <circle cx="50" cy="50" r="40" stroke="#6B99A8" strokeWidth="6" fill="none" strokeDasharray="251.2" strokeDashoffset={251.2 - (251.2 * stats.atsScore) / 100} className="transition-all duration-1000 ease-out" />
-              </svg>
-              <div className="absolute flex flex-col items-center justify-center">
-                <span className="text-2xl sm:text-3xl font-medium text-[#1A1A1A]">{stats.atsScore}</span>
-                <span className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-widest mt-0.5 sm:mt-1">/ 100</span>
-              </div>
+          <div className="space-y-3 sm:space-y-4 mt-auto">
+            <div className="flex items-start gap-2.5 text-[12px] sm:text-[13px]">
+              <CheckCircle2 size={14} className="sm:w-[16px] sm:h-[16px] text-green-500 shrink-0 mt-0.5" />
+              <span className="text-gray-600 leading-relaxed">Strong impact metrics used in experience section.</span>
             </div>
-
-            <div className="space-y-3 sm:space-y-4 mt-auto">
-              <div className="flex items-start gap-2.5 text-[12px] sm:text-[13px]">
-                <CheckCircle2 size={14} className="sm:w-[16px] sm:h-[16px] text-green-500 shrink-0 mt-0.5" />
-                <span className="text-gray-600 leading-relaxed">Strong impact metrics used in experience section.</span>
-              </div>
-              <div className="flex items-start gap-2.5 text-[12px] sm:text-[13px]">
-                <AlertCircle size={14} className="sm:w-[16px] sm:h-[16px] text-orange-400 shrink-0 mt-0.5" />
-                <span className="text-gray-600 leading-relaxed">Missing keywords: "System Design", "Agile".</span>
-              </div>
-              <button 
-                onClick={() => showToast("Analyzing resume... AI suggestions will appear shortly.")}
-                className="w-full mt-4 sm:mt-6 bg-[#1A1A1A] text-white py-2.5 sm:py-3 text-[11px] sm:text-xs font-medium tracking-wide hover:bg-black transition-colors rounded-sm"
-              >
-                Generate AI Suggestions
-              </button>
+            <div className="flex items-start gap-2.5 text-[12px] sm:text-[13px]">
+              <AlertCircle size={14} className="sm:w-[16px] sm:h-[16px] text-orange-400 shrink-0 mt-0.5" />
+              <span className="text-gray-600 leading-relaxed">Missing keywords: "System Design", "Agile".</span>
             </div>
+            <button
+              onClick={() => showToast("Analyzing resume... AI suggestions will appear shortly.")}
+              className="w-full mt-4 sm:mt-6 bg-[#1A1A1A] text-white py-2.5 sm:py-3 text-[11px] sm:text-xs font-medium tracking-wide hover:bg-black transition-colors rounded-sm"
+            >
+              Generate AI Suggestions
+            </button>
           </div>
         </div>
+      </div>
     </motion.div>
   );
 
@@ -520,13 +729,13 @@ export default function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-[#fafbfc] flex font-sans relative">
-      
+
       {/* Global Toast Notification */}
       <AnimatePresence>
         {toast && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50, x: "-50%" }} 
-            animate={{ opacity: 1, y: 0, x: "-50%" }} 
+          <motion.div
+            initial={{ opacity: 0, y: 50, x: "-50%" }}
+            animate={{ opacity: 1, y: 0, x: "-50%" }}
             exit={{ opacity: 0, y: 20, x: "-50%" }}
             className="fixed bottom-6 sm:bottom-10 left-1/2 z-[200] bg-[#1A1A1A] text-white px-4 sm:px-6 py-3 rounded-sm shadow-xl flex items-center gap-2 sm:gap-3 text-xs sm:text-sm font-medium w-[90%] sm:w-auto justify-center text-center"
           >
@@ -559,7 +768,7 @@ export default function StudentDashboard() {
               >
                 <X size={20} />
               </button>
-              
+
               <div className="flex items-center gap-3 sm:gap-4 mb-5 sm:mb-6 border-b border-gray-100 pb-5 sm:pb-6 pr-6">
                 <div className="w-10 h-10 sm:w-12 sm:h-12 shrink-0 bg-gray-50 border border-gray-200 flex items-center justify-center font-bold text-gray-700 text-lg sm:text-xl rounded-sm">
                   {selectedApp.company[0]}
@@ -588,15 +797,15 @@ export default function StudentDashboard() {
               {/* Conditional Action Area based on Stage */}
               <div className="bg-[#f4f8f9] p-4 sm:p-5 border border-[#6B99A8]/20 rounded-sm">
                 <h4 className="text-[12px] sm:text-[13px] font-medium text-[#1A1A1A] mb-2 flex items-center gap-2">
-                  <AlertCircle size={14} className="text-[#6B99A8] shrink-0"/> Action Required
+                  <AlertCircle size={14} className="text-[#6B99A8] shrink-0" /> Action Required
                 </h4>
-                
+
                 {(selectedApp.currentStage === 1 || selectedApp.currentStage === 2) ? (
                   <div>
                     <p className="text-[11px] sm:text-[12px] text-gray-600 mb-4 sm:mb-5 leading-relaxed">
                       Congratulations! You have been shortlisted. Please schedule your <span className="font-semibold text-[#1A1A1A]">{selectedApp.currentStage === 1 ? 'Online Test' : 'Interview'}</span> to proceed with your application.
                     </p>
-                    <button 
+                    <button
                       onClick={() => {
                         showToast(`Redirecting to ${selectedApp.company} scheduling portal...`);
                         setSelectedApp(null);
@@ -646,10 +855,10 @@ export default function StudentDashboard() {
         <div className="p-6 border-t border-gray-100 bg-white">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleTabChange('profile')}>
             <div className="w-9 h-9 shrink-0 rounded-full bg-gradient-to-tr from-[#6B99A8] to-[#92b5c1] flex items-center justify-center text-white text-[11px] font-bold">
-              JD
+              {(studentName || user?.email || "S").split(" ").map(w => w[0]).join("").toUpperCase().substring(0, 2)}
             </div>
             <div className="overflow-hidden">
-              <p className="text-[13px] font-semibold text-[#1A1A1A] truncate">John Doe</p>
+              <p className="text-[13px] font-semibold text-[#1A1A1A] truncate">{studentName || "Student"}</p>
               <p className="text-[11px] text-gray-500 truncate">Student Account</p>
             </div>
           </div>
@@ -660,12 +869,12 @@ export default function StudentDashboard() {
       <AnimatePresence>
         {isMobileMenuOpen && (
           <>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setIsMobileMenuOpen(false)}
               className="fixed inset-0 bg-black/50 z-40 md:hidden"
             />
-            <motion.div 
+            <motion.div
               initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }} transition={{ type: "tween", duration: 0.3 }}
               className="fixed inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col z-50 md:hidden"
             >
@@ -680,15 +889,15 @@ export default function StudentDashboard() {
                 <button onClick={() => handleTabChange('applications')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'applications' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50 hover:text-gray-900'}`}><Clock size={16} /> App Tracking</button>
                 <button onClick={() => handleTabChange('resume')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'resume' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50 hover:text-gray-900'}`}><FileText size={16} /> AI Resume Assistant</button>
               </div>
-              
+
               {/* Mobile User Profile snippet */}
               <div className="p-4 border-t border-gray-100 bg-white">
                 <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleTabChange('profile')}>
                   <div className="w-9 h-9 shrink-0 rounded-full bg-gradient-to-tr from-[#6B99A8] to-[#92b5c1] flex items-center justify-center text-white text-[11px] font-bold">
-                    JD
+                    {(studentName || user?.email || "S").split(" ").map(w => w[0]).join("").toUpperCase().substring(0, 2)}
                   </div>
                   <div className="overflow-hidden">
-                    <p className="text-[13px] font-semibold text-[#1A1A1A] truncate">John Doe</p>
+                    <p className="text-[13px] font-semibold text-[#1A1A1A] truncate">{studentName || "Student"}</p>
                     <p className="text-[11px] text-gray-500 truncate">Student Account</p>
                   </div>
                 </div>
@@ -700,22 +909,22 @@ export default function StudentDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden w-full">
-        
+
         {/* Top Navbar */}
         <header className="h-[70px] sm:h-[80px] bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-10 flex-shrink-0 z-10 w-full">
           <div className="flex items-center gap-3 sm:gap-2">
-             <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-gray-500 hover:text-[#1A1A1A]"><Menu size={24} /></button>
-             <div className="flex items-center gap-2 text-[12px] sm:text-[13px] text-gray-400 font-medium">
-               Student <ChevronRight size={14} className="hidden sm:block" /> 
-               <span className="text-[#1A1A1A] capitalize hidden sm:block">{activeTab}</span>
-             </div>
+            <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-gray-500 hover:text-[#1A1A1A]"><Menu size={24} /></button>
+            <div className="flex items-center gap-2 text-[12px] sm:text-[13px] text-gray-400 font-medium">
+              Student <ChevronRight size={14} className="hidden sm:block" />
+              <span className="text-[#1A1A1A] capitalize hidden sm:block">{activeTab}</span>
+            </div>
           </div>
-          
+
           <div className="flex items-center gap-5">
-             <button className="relative p-2 text-gray-400 hover:text-[#1A1A1A] transition-colors">
-               <Bell size={18} />
-               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
-             </button>
+            <button className="relative p-2 text-gray-400 hover:text-[#1A1A1A] transition-colors">
+              <Bell size={18} />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+            </button>
           </div>
         </header>
 

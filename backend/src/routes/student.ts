@@ -132,10 +132,10 @@ router.post('/send-otp', async (req: Request, res: Response): Promise<void> => {
             });
 
         // Construct the email
-        const subject = "Your MockMate Verification Code";
+        const subject = "Your PLACEME Verification Code";
         const htmlMessage = `
             <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                <h2 style="color: #333;">Welcome to MockMate!</h2>
+                <h2 style="color: #333;">Welcome to PLACEME !!</h2>
                 <p style="color: #555; font-size: 16px;">Use the following One-Time Password (OTP) to verify your student account:</p>
                 <div style="background-color: #f4f4f4; padding: 16px; text-align: center; border-radius: 6px; margin: 24px 0;">
                     <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #000;">${otp}</span>
@@ -149,9 +149,9 @@ router.post('/send-otp', async (req: Request, res: Response): Promise<void> => {
 
         if (emailError) {
             console.error('Failed to send OTP email via Resend:', emailError);
-            res.status(500).json({ 
+            res.status(500).json({
                 error: 'Failed to send OTP email. Please try again later.',
-                details: emailError.message 
+                details: emailError.message
             });
             return;
         }
@@ -314,6 +314,9 @@ router.get('/profile', authenticate, requireRole('STUDENT'), async (req: Request
                 branch: student.branch,
                 graduationYear: student.graduationYear,
                 state: student.state,
+                github: student.github,
+                linkedin: student.linkedin,
+                leetcode: student.leetcode,
                 verifiedBy: student.verifiedBy,
                 verifiedAt: student.verifiedAt,
                 createdAt: student.createdAt,
@@ -353,8 +356,8 @@ router.put('/profile', authenticate, requireRole('STUDENT'), async (req: Request
             return;
         }
 
-        // Only allow profile completion if REGISTERED or REJECTED (re-submit)
-        if (student.state !== 'REGISTERED' && student.state !== 'REJECTED') {
+        // Only allow profile completion if REGISTERED, REJECTED, or PROFILE_COMPLETED (re-submit)
+        if (student.state !== 'REGISTERED' && student.state !== 'REJECTED' && student.state !== 'PROFILE_COMPLETED') {
             res.status(409).json({ error: `Cannot update profile in state: ${student.state}` });
             return;
         }
@@ -449,28 +452,70 @@ router.get('/dashboard', authenticate, requireRole('STUDENT'), async (req: Reque
 
 /**
  * GET /student/jobs
- * Returns published jobs available for the student.
+ * Returns published jobs available for the student's college.
  */
 router.get('/jobs', authenticate, requireRole('STUDENT'), async (req: Request, res: Response): Promise<void> => {
     try {
+        // Get student's college
+        const [student] = await db
+            .select()
+            .from(schema.students)
+            .where(eq(schema.students.id, req.user!.id))
+            .limit(1);
+
+        if (!student) {
+            res.status(404).json({ error: 'Student profile not found' });
+            return;
+        }
+
         const publishedJobs = await db
             .select({
                 id: schema.jobs.id,
                 title: schema.jobs.title,
                 description: schema.jobs.description,
                 location: schema.jobs.location,
+                branches: schema.jobs.branches,
                 minCgpa: schema.jobs.minCgpa,
                 createdAt: schema.jobs.createdAt,
+                postedByTnpId: schema.jobs.postedByTnpId,
                 companyName: schema.companies.name,
-                companyWebsite: schema.companies.website,
             })
             .from(schema.jobs)
-            .innerJoin(schema.recruiters, eq(schema.jobs.recruiterId, schema.recruiters.id))
-            .innerJoin(schema.companies, eq(schema.recruiters.companyId, schema.companies.id))
-            .where(eq(schema.jobs.state, 'PUBLISHED'))
+            .leftJoin(schema.recruiters, eq(schema.jobs.recruiterId, schema.recruiters.id))
+            .leftJoin(schema.companies, eq(schema.recruiters.companyId, schema.companies.id))
+            .where(
+                and(
+                    eq(schema.jobs.state, 'PUBLISHED'),
+                    eq(schema.jobs.collegeId, student.collegeId)
+                )
+            )
             .orderBy(desc(schema.jobs.createdAt));
 
-        res.json({ jobs: publishedJobs });
+        const formattedJobs = publishedJobs.map(job => {
+            let type = 'Full-Time';
+            let ctc = 'N/A';
+            const descStr = job.description || '';
+            const typeMatch = descStr.match(/Type:\s*(.*)/);
+            const ctcMatch = descStr.match(/CTC:\s*(.*)/);
+            if (typeMatch) type = typeMatch[1];
+            if (ctcMatch) ctc = ctcMatch[1];
+
+            return {
+                id: job.id,
+                title: job.title,
+                description: job.description,
+                location: job.location || 'Remote',
+                branches: job.branches,
+                minCgpa: job.minCgpa,
+                type,
+                ctc,
+                createdAt: job.createdAt,
+                companyName: job.companyName || 'T&P Cell',
+                isTnpPosted: !!job.postedByTnpId,
+            };
+        });
+
+        res.json({ jobs: formattedJobs });
     } catch (err) {
         console.error('Fetch jobs error:', err);
         res.status(500).json({ error: 'Internal server error' });
