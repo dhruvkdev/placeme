@@ -53,6 +53,7 @@ export function requireRole(...roles: string[]) {
         }
 
         if (!roles.includes(req.user.role)) {
+            console.error(`[AUTH_ERROR] User role '${req.user.role}' lacks permission. Required: [${roles.join(', ')}] for path ${req.path}`);
             res.status(403).json({ error: 'Forbidden: insufficient permissions' });
             return;
         }
