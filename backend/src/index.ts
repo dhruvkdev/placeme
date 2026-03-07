@@ -8,6 +8,7 @@ import inviteRouter from './routes/invite.js';
 import tnpRouter from './routes/tnp.js';
 import studentRouter from './routes/student.js';
 import recuiterRouter from './routes/recruiter.js'
+import analyzeRouter from './routes/analyze.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -22,6 +23,7 @@ app.use('/invite', inviteRouter);
 app.use('/tnp', tnpRouter);
 app.use('/student', studentRouter);
 app.use('/recruiter', recuiterRouter);
+app.use('/analyze', analyzeRouter);
 
 // Health check
 app.get('/health', (_req: express.Request, res: express.Response) => {
