@@ -132,10 +132,10 @@ router.post('/send-otp', async (req: Request, res: Response): Promise<void> => {
             });
 
         // Construct the email
-        const subject = "Your MockMate Verification Code";
+        const subject = "Your PLACEME Verification Code";
         const htmlMessage = `
             <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                <h2 style="color: #333;">Welcome to MockMate!</h2>
+                <h2 style="color: #333;">Welcome to PLACEME !!</h2>
                 <p style="color: #555; font-size: 16px;">Use the following One-Time Password (OTP) to verify your student account:</p>
                 <div style="background-color: #f4f4f4; padding: 16px; text-align: center; border-radius: 6px; margin: 24px 0;">
                     <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #000;">${otp}</span>
