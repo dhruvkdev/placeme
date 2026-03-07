@@ -1,23 +1,146 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "@/lib/AuthContext";
+import { apiFetch } from "@/lib/api";
 import { 
   LayoutDashboard, Users, Briefcase, FileCheck, Bell, 
   Search, CheckCircle2, ChevronRight, BarChart3, 
-  AlertCircle, TrendingUp, X, Download, Loader2, Menu
+  AlertCircle, TrendingUp, X, Download, Loader2, Menu,
+  Building, Globe, LogOut
 } from "lucide-react";
 
 export default function TnPDashboard() {
+  const { user, logout } = useAuth();
+
   const [activeTab, setActiveTab] = useState("overview"); 
   const [toast, setToast] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  // College setup state
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [setupLoading, setSetupLoading] = useState(true);
+  const [collegeName, setCollegeName] = useState("");
+  const [collegeDomain, setCollegeDomain] = useState("");
+  const [setupSubmitting, setSetupSubmitting] = useState(false);
+  const [setupError, setSetupError] = useState("");
+
+  // Dashboard data
+  const [stats, setStats] = useState({ totalStudents: 0, placedStudents: 0, activeDrives: 0, avgCtc: "N/A" });
+  const [pendingApprovals, setPendingApprovals] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+
   const showToast = (message) => {
     setToast(message);
     setTimeout(() => setToast(null), 3500);
+  };
+
+  // Check if college setup is needed
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch("/tnp/profile");
+        const data = await res.json();
+
+        if (!res.ok) {
+          setSetupLoading(false);
+          return;
+        }
+
+        if (!data.collegeId) {
+          setNeedsSetup(true);
+        } else {
+          setNeedsSetup(false);
+          loadDashboard();
+        }
+      } catch {
+        // If profile call fails, show setup anyway
+      }
+      setSetupLoading(false);
+    })();
+  }, []);
+
+  const loadDashboard = async () => {
+    setDashboardLoading(true);
+    try {
+      const res = await apiFetch("/tnp/dashboard");
+      const data = await res.json();
+
+      if (res.ok) {
+        setStats({
+          totalStudents: data.totalStudents || 0,
+          placedStudents: data.placedStudents || 0,
+          activeDrives: data.activeDrives || 0,
+          avgCtc: data.avgCtc || "N/A",
+        });
+        setPendingApprovals(data.pendingApprovals || []);
+        setStudents(data.students || []);
+      }
+    } catch { /* silently fail */ }
+    setDashboardLoading(false);
+  };
+
+  const handleCollegeSetup = async (e) => {
+    e.preventDefault();
+    setSetupError("");
+    setSetupSubmitting(true);
+
+    try {
+      const res = await apiFetch("/tnp/setup-college", {
+        method: "POST",
+        body: JSON.stringify({ collegeName, domains: [collegeDomain] }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setSetupError(data.error || "Setup failed.");
+        setSetupSubmitting(false);
+        return;
+      }
+
+      setNeedsSetup(false);
+      showToast("College set up successfully!");
+      loadDashboard();
+    } catch {
+      setSetupError("Failed to connect to server.");
+    } finally {
+      setSetupSubmitting(false);
+    }
+  };
+
+  const handleApprove = async (id, company) => {
+    try {
+      const res = await apiFetch(`/tnp/jobs/${id}/approve`, { method: "POST" });
+      if (res.ok) {
+        setPendingApprovals(prev => prev.filter(p => p.id !== id));
+        showToast(`Approved ${company} drive. Broadcasting to students.`);
+      } else {
+        const data = await res.json();
+        showToast(data.error || "Failed to approve.");
+      }
+    } catch {
+      showToast("Failed to connect to server.");
+    }
+  };
+
+  const handleReject = async (id, company) => {
+    try {
+      const res = await apiFetch(`/tnp/jobs/${id}/reject`, { method: "POST" });
+      if (res.ok) {
+        setPendingApprovals(prev => prev.filter(p => p.id !== id));
+        showToast(`Rejected ${company} drive.`);
+      } else {
+        const data = await res.json();
+        showToast(data.error || "Failed to reject.");
+      }
+    } catch {
+      showToast("Failed to connect to server.");
+    }
   };
 
   const handleExport = () => {
@@ -34,32 +157,96 @@ export default function TnPDashboard() {
     setIsMobileMenuOpen(false);
   };
 
-  // Mock Data
-  const stats = { totalStudents: 1240, placedStudents: 856, activeDrives: 14, avgCtc: "12.5 LPA" };
+  // Loading state
+  if (setupLoading) {
+    return (
+      <div className="min-h-screen bg-[#fafbfc] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-[#2C6E8F] animate-spin" />
+      </div>
+    );
+  }
 
-  const [pendingApprovals, setPendingApprovals] = useState([
-    { id: 1, company: "Atlassian", role: "SDE-1", type: "Full-Time", ctc: "32 LPA", branches: "CSE, ECE" },
-    { id: 2, company: "Amazon", role: "6-Month Intern", type: "Internship", ctc: "1 Lakh/mo", branches: "CSE, IT, ECE" },
-    { id: 3, company: "Deloitte", role: "Business Analyst", type: "Full-Time", ctc: "8.5 LPA", branches: "All Branches" },
-  ]);
+  // College Setup Flow
+  if (needsSetup) {
+    return (
+      <div className="min-h-screen bg-[#f3f7f6] flex items-center justify-center px-4">
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          <div className="absolute top-0 left-0 w-[60%] h-full bg-gradient-to-br from-[#71a2b6] to-transparent opacity-20" style={{ clipPath: "polygon(0 0, 40% 0, 10% 100%, 0 100%)" }} />
+        </div>
 
-  const students = [
-    { id: "NIT001", name: "Rahul Sharma", branch: "Computer Science", cgpa: 9.1, status: "Placed", company: "Google" },
-    { id: "NIT002", name: "Priya Patel", branch: "Information Tech", cgpa: 8.8, status: "Placed", company: "Microsoft" },
-    { id: "NIT003", name: "Amit Kumar", branch: "Electronics", cgpa: 7.9, status: "Unplaced", company: "-" },
-    { id: "NIT004", name: "Neha Singh", branch: "Computer Science", cgpa: 8.5, status: "Placed", company: "Atlassian" },
-    { id: "NIT005", name: "Rohan Das", branch: "Mechanical", cgpa: 8.2, status: "Unplaced", company: "-" },
-  ];
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative z-10 w-full max-w-lg">
+          <div className="text-center mb-8">
+            <span className="text-xl font-bold tracking-widest text-[#1A1A1A] uppercase">PlaceMe</span>
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <Building size={20} className="text-[#2C6E8F]" />
+              <h1 className="text-2xl font-medium text-[#1A1A1A]">
+                Set Up Your <span className="font-serif italic text-[#2C6E8F]">College</span>
+              </h1>
+            </div>
+            <p className="text-sm text-gray-500 mt-2">Complete your college setup to start managing placements.</p>
+          </div>
 
-  const handleApprove = (id, company) => {
-    setPendingApprovals(pendingApprovals.filter(p => p.id !== id));
-    showToast(`Approved ${company} drive. Broadcasting to students.`);
-  };
+          <form onSubmit={handleCollegeSetup} className="bg-white border border-gray-200 p-8 shadow-sm space-y-5">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">College Name</label>
+              <div className="relative">
+                <Building className="absolute left-3 top-3 text-gray-400" size={16} />
+                <input
+                  required
+                  value={collegeName}
+                  onChange={(e) => setCollegeName(e.target.value)}
+                  className="w-full border border-gray-300 p-3 pl-10 text-sm focus:outline-none focus:border-[#2C6E8F] focus:ring-1 focus:ring-[#2C6E8F]/20 transition-all"
+                  placeholder="e.g. National Institute of Technology"
+                />
+              </div>
+            </div>
 
-  const handleReject = (id, company) => {
-    setPendingApprovals(pendingApprovals.filter(p => p.id !== id));
-    showToast(`Rejected ${company} drive.`);
-  };
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Email Domain</label>
+              <div className="relative">
+                <Globe className="absolute left-3 top-3 text-gray-400" size={16} />
+                <input
+                  required
+                  value={collegeDomain}
+                  onChange={(e) => setCollegeDomain(e.target.value)}
+                  className="w-full border border-gray-300 p-3 pl-10 text-sm focus:outline-none focus:border-[#2C6E8F] focus:ring-1 focus:ring-[#2C6E8F]/20 transition-all"
+                  placeholder="e.g. nit.ac.in"
+                />
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">Students with this email domain will be able to register.</p>
+            </div>
+
+            {setupError && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 px-4 py-2.5 rounded-sm">
+                <AlertCircle size={14} />
+                {setupError}
+              </motion.div>
+            )}
+
+            <button
+              type="submit"
+              disabled={setupSubmitting}
+              className="w-full bg-[#1A1A1A] text-white p-3.5 text-sm font-medium hover:bg-black transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {setupSubmitting ? <Loader2 size={16} className="animate-spin" /> : <>Set Up College <ChevronRight size={16} /></>}
+            </button>
+          </form>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Dashboard loading overlay
+  if (dashboardLoading) {
+    return (
+      <div className="min-h-screen bg-[#fafbfc] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-[#2C6E8F] animate-spin" />
+          <p className="text-sm text-gray-500 font-medium">Loading dashboard…</p>
+        </div>
+      </div>
+    );
+  }
 
   const renderOverview = () => (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
@@ -70,9 +257,11 @@ export default function TnPDashboard() {
             <span className="text-3xl font-medium text-[#1A1A1A]">{stats.placedStudents}</span>
             <span className="text-xs text-gray-400 font-medium mb-1">/ {stats.totalStudents}</span>
           </div>
-          <div className="w-full bg-gray-100 h-1 mt-4 rounded-full overflow-hidden">
-            <div className="bg-[#6B99A8]" style={{ width: `${(stats.placedStudents/stats.totalStudents)*100}%`, height: '100%' }}></div>
-          </div>
+          {stats.totalStudents > 0 && (
+            <div className="w-full bg-gray-100 h-1 mt-4 rounded-full overflow-hidden">
+              <div className="bg-[#6B99A8]" style={{ width: `${(stats.placedStudents/stats.totalStudents)*100}%`, height: '100%' }}></div>
+            </div>
+          )}
         </div>
         <div className="bg-white border border-gray-200 p-6 hover:border-[#6B99A8]/40 transition-colors">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-2">Active Drives</p>
@@ -85,7 +274,6 @@ export default function TnPDashboard() {
           <div className="flex items-end gap-3">
             <span className="text-3xl font-medium text-[#1A1A1A]">{stats.avgCtc}</span>
           </div>
-          <p className="text-[11px] text-green-600 font-medium mt-4 flex items-center gap-1"><TrendingUp size={12} /> +15% from last year</p>
         </div>
         <div className="bg-[#fcfdfd] border border-orange-200 p-6 shadow-[0_4px_20px_rgba(255,165,0,0.05)] cursor-pointer" onClick={() => handleTabChange('approvals')}>
           <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-2">Pending Approvals</p>
@@ -130,13 +318,10 @@ export default function TnPDashboard() {
           <p className="text-sm sm:text-[15px] text-gray-500 mt-1 sm:mt-2">Review and approve job descriptions before they are visible to students.</p>
         </div>
       </div>
-      {/* Removed overflow-x-auto to completely disable horizontal scroll */}
       <div className="bg-white border border-gray-200 rounded-sm">
-        {/* Changed to table-fixed for strict width constraints on mobile */}
         <table className="w-full text-left border-collapse table-fixed sm:table-auto">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200 text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-500">
-              {/* Added strict percentage widths for mobile so they fit perfectly */}
               <th className="p-2 sm:p-4 font-medium w-[40%] sm:w-auto">Company & Role</th>
               <th className="p-2 sm:p-4 font-medium w-[30%] sm:w-auto">Type & CTC</th>
               <th className="p-2 sm:p-4 font-medium hidden sm:table-cell">Eligible Branches</th>
@@ -150,19 +335,18 @@ export default function TnPDashboard() {
             {pendingApprovals.map((job) => (
               <tr key={job.id} className="hover:bg-gray-50/50 transition-colors align-top sm:align-middle">
                 <td className="p-2 sm:p-4 overflow-hidden">
-                  <p className="text-[11px] sm:text-[13px] font-semibold text-[#1A1A1A] truncate">{job.company}</p>
-                  <p className="text-[10px] sm:text-[11px] text-[#5B8D9E] font-medium truncate">{job.role}</p>
-                  <p className="text-[9px] text-gray-600 sm:hidden mt-1 line-clamp-2">{job.branches}</p>
+                  <p className="text-[11px] sm:text-[13px] font-semibold text-[#1A1A1A] truncate">{job.company || job.title}</p>
+                  <p className="text-[10px] sm:text-[11px] text-[#5B8D9E] font-medium truncate">{job.role || job.description?.substring(0,40)}</p>
                 </td>
                 <td className="p-2 sm:p-4">
-                  <p className="text-[10px] sm:text-[12px] text-gray-800 font-medium">{job.ctc}</p>
-                  <p className="text-[9px] sm:text-[11px] text-gray-500">{job.type}</p>
+                  <p className="text-[10px] sm:text-[12px] text-gray-800 font-medium">{job.ctc || "—"}</p>
+                  <p className="text-[9px] sm:text-[11px] text-gray-500">{job.type || "Full-Time"}</p>
                 </td>
-                <td className="p-4 hidden sm:table-cell"><p className="text-[12px] text-gray-600">{job.branches}</p></td>
+                <td className="p-4 hidden sm:table-cell"><p className="text-[12px] text-gray-600">{job.branches || "All"}</p></td>
                 <td className="p-2 sm:p-4">
                   <div className="flex flex-col gap-1.5 sm:flex-row sm:gap-2">
-                    <button onClick={() => handleApprove(job.id, job.company)} className="text-[9px] sm:text-[11px] bg-[#1A1A1A] text-white px-1 sm:px-4 py-1.5 hover:bg-black transition-colors rounded-sm w-full text-center">Approve</button>
-                    <button onClick={() => handleReject(job.id, job.company)} className="text-[9px] sm:text-[11px] border border-gray-300 text-gray-700 px-1 sm:px-4 py-1.5 hover:bg-gray-50 transition-colors rounded-sm w-full text-center">Reject</button>
+                    <button onClick={() => handleApprove(job.id, job.company || job.title)} className="text-[9px] sm:text-[11px] bg-[#1A1A1A] text-white px-1 sm:px-4 py-1.5 hover:bg-black transition-colors rounded-sm w-full text-center">Approve</button>
+                    <button onClick={() => handleReject(job.id, job.company || job.title)} className="text-[9px] sm:text-[11px] border border-gray-300 text-gray-700 px-1 sm:px-4 py-1.5 hover:bg-gray-50 transition-colors rounded-sm w-full text-center">Reject</button>
                   </div>
                 </td>
               </tr>
@@ -204,23 +388,22 @@ export default function TnPDashboard() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {students.filter(s => s.name.toLowerCase().includes(searchQuery) || s.id.toLowerCase().includes(searchQuery)).map((student) => (
+            {students.length === 0 ? (
+              <tr><td colSpan={4} className="p-8 text-center text-gray-500 text-sm">No students registered yet.</td></tr>
+            ) : students.filter(s => (s.name || "").toLowerCase().includes(searchQuery) || (s.id || "").toString().toLowerCase().includes(searchQuery)).map((student) => (
               <tr key={student.id} className="hover:bg-gray-50/50 transition-colors align-top sm:align-middle">
                 <td className="p-2 sm:p-4 overflow-hidden">
                   <p className="text-[11px] sm:text-[13px] font-semibold text-[#1A1A1A] truncate">{student.name}</p>
-                  <p className="text-[9px] sm:text-[11px] text-gray-500">{student.id}</p>
+                  <p className="text-[9px] sm:text-[11px] text-gray-500">{student.email || student.id}</p>
                   <p className="text-[9px] text-gray-600 sm:hidden mt-1 truncate">{student.branch}</p>
                 </td>
                 <td className="p-4 hidden sm:table-cell"><p className="text-[11px] sm:text-[12px] text-gray-600">{student.branch}</p></td>
-                <td className="p-2 sm:p-4"><p className="text-[10px] sm:text-[12px] font-medium text-[#5B8D9E]">{student.cgpa}</p></td>
+                <td className="p-2 sm:p-4"><p className="text-[10px] sm:text-[12px] font-medium text-[#5B8D9E]">{student.cgpa || "—"}</p></td>
                 <td className="p-2 sm:p-4 text-center sm:text-left">
-                  {student.status === "Placed" ? (
-                    <div className="flex flex-col sm:block items-center">
-                      <span className="text-[8px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded bg-green-50 text-green-700 uppercase tracking-wider border border-green-200 inline-block">{student.status}</span>
-                      <p className="text-[9px] sm:text-[11px] text-gray-500 mt-1 truncate max-w-full">at {student.company}</p>
-                    </div>
+                  {student.status === "PLACED" ? (
+                    <span className="text-[8px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded bg-green-50 text-green-700 uppercase tracking-wider border border-green-200 inline-block">Placed</span>
                   ) : (
-                    <span className="text-[8px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded bg-gray-100 text-gray-600 uppercase tracking-wider border border-gray-200 inline-block">{student.status}</span>
+                    <span className="text-[8px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded bg-gray-100 text-gray-600 uppercase tracking-wider border border-gray-200 inline-block">{student.status || "Active"}</span>
                   )}
                 </td>
               </tr>
@@ -244,7 +427,6 @@ export default function TnPDashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Branch Wise Chart Mock */}
         <div className="bg-white border border-gray-200 p-6 sm:p-8 shadow-sm">
           <h3 className="text-sm font-medium text-[#1A1A1A] mb-6 border-b border-gray-100 pb-4">Branch-wise Placements (%)</h3>
           <div className="space-y-6">
@@ -261,7 +443,6 @@ export default function TnPDashboard() {
           </div>
         </div>
 
-        {/* Salary Distribution */}
         <div className="bg-white border border-gray-200 p-6 sm:p-8 shadow-sm flex flex-col min-h-[300px]">
           <h3 className="text-sm font-medium text-[#1A1A1A] mb-6 border-b border-gray-100 pb-4">CTC Distribution</h3>
           <div className="flex items-end justify-between flex-grow pt-4 gap-2">
@@ -276,7 +457,6 @@ export default function TnPDashboard() {
           </div>
         </div>
 
-        {/* Top Recruiters */}
         <div className="bg-white border border-gray-200 p-6 sm:p-8 shadow-sm">
           <h3 className="text-sm font-medium text-[#1A1A1A] mb-4 sm:mb-6 border-b border-gray-100 pb-4">Top Hiring Partners</h3>
           <div className="space-y-0 divide-y divide-gray-100">
@@ -300,7 +480,6 @@ export default function TnPDashboard() {
           </div>
         </div>
 
-        {/* YoY Growth */}
         <div className="bg-[#1A1A1A] border border-gray-800 p-6 sm:p-8 shadow-sm text-white flex flex-col justify-center relative overflow-hidden">
           <div className="absolute top-0 right-0 w-48 sm:w-64 h-48 sm:h-64 bg-gradient-to-bl from-[#6B99A8]/20 to-transparent rounded-bl-full pointer-events-none"></div>
           <h3 className="text-sm font-medium text-gray-300 mb-2 z-10">Year-over-Year (YoY) Growth</h3>
@@ -341,6 +520,11 @@ export default function TnPDashboard() {
           <button onClick={() => setActiveTab('students')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'students' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><Users size={16} /> Student Directory</button>
           <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'analytics' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><BarChart3 size={16} /> Analytics</button>
         </div>
+        <div className="p-4 border-t border-gray-100">
+          <button onClick={logout} className="flex items-center gap-2 px-4 py-2 text-[12px] text-gray-500 hover:text-red-600 transition-colors font-medium w-full">
+            <LogOut size={14} /> Sign out
+          </button>
+        </div>
       </div>
 
       {/* Mobile Sidebar Overlay */}
@@ -366,6 +550,11 @@ export default function TnPDashboard() {
                 <button onClick={() => handleTabChange('students')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'students' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><Users size={16} /> Student Directory</button>
                 <button onClick={() => handleTabChange('analytics')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'analytics' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50'}`}><BarChart3 size={16} /> Analytics</button>
               </div>
+              <div className="p-4 border-t border-gray-100">
+                <button onClick={logout} className="flex items-center gap-2 px-4 py-2 text-[12px] text-gray-500 hover:text-red-600 transition-colors font-medium w-full">
+                  <LogOut size={14} /> Sign out
+                </button>
+              </div>
             </motion.div>
           </>
         )}
@@ -378,7 +567,10 @@ export default function TnPDashboard() {
             <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-gray-500 hover:text-[#1A1A1A]"><Menu size={24} /></button>
             <div className="flex items-center gap-2 text-[12px] sm:text-[13px] text-gray-400 font-medium">T&P Cell <ChevronRight size={14} className="hidden sm:block" /><span className="text-[#1A1A1A] capitalize hidden sm:block">{activeTab}</span></div>
           </div>
-          <button className="p-2 text-gray-400 hover:text-[#1A1A1A] transition-colors"><Bell size={18} /></button>
+          <div className="flex items-center gap-3">
+            {user && <span className="text-xs text-gray-500 hidden sm:block">{user.email}</span>}
+            <button className="p-2 text-gray-400 hover:text-[#1A1A1A] transition-colors"><Bell size={18} /></button>
+          </div>
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 w-full">
           <div className="max-w-6xl mx-auto pb-10">
