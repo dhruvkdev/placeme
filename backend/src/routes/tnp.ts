@@ -731,4 +731,152 @@ router.post('/students/:studentId/reject', async (req: Request, res: Response): 
     }
 });
 
+/**
+ * GET /tnp/applications
+ * Lists all applications for students belonging to the T&P's college.
+ */
+router.get('/applications', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const [profile] = await db
+            .select()
+            .from(schema.tnpProfiles)
+            .where(eq(schema.tnpProfiles.id, req.user!.id))
+            .limit(1);
+
+        if (!profile || !profile.collegeId) {
+            res.status(400).json({ error: 'College not configured yet' });
+            return;
+        }
+
+        const applications = await db
+            .select({
+                id: schema.applications.id,
+                state: schema.applications.state,
+                appliedAt: schema.applications.appliedAt,
+                studentId: schema.applications.studentId,
+                studentName: schema.users.name,
+                studentEmail: schema.users.email,
+                studentBranch: schema.students.branch,
+                studentCgpa: schema.students.cgpa,
+                jobTitle: schema.jobs.title,
+                jobLocation: schema.jobs.location,
+                companyName: schema.companies.name,
+            })
+            .from(schema.applications)
+            .innerJoin(schema.students, eq(schema.applications.studentId, schema.students.id))
+            .innerJoin(schema.users, eq(schema.students.id, schema.users.id))
+            .innerJoin(schema.jobs, eq(schema.applications.jobId, schema.jobs.id))
+            .leftJoin(schema.recruiters, eq(schema.jobs.recruiterId, schema.recruiters.id))
+            .leftJoin(schema.companies, eq(schema.recruiters.companyId, schema.companies.id))
+            .where(eq(schema.students.collegeId, profile.collegeId))
+            .orderBy(desc(schema.applications.appliedAt));
+
+        const formatted = applications.map((app) => ({
+            id: app.id,
+            state: app.state,
+            appliedAt: app.appliedAt,
+            studentId: app.studentId,
+            studentName: app.studentName || 'Student',
+            studentEmail: app.studentEmail,
+            studentBranch: app.studentBranch,
+            studentCgpa: app.studentCgpa,
+            jobTitle: app.jobTitle,
+            jobLocation: app.jobLocation || 'Remote',
+            companyName: app.companyName || 'T&P Cell',
+        }));
+
+        res.json({ applications: formatted });
+    } catch (err) {
+        console.error('TNP applications error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+const VALID_APPLICATION_STATES = [
+    'APPLIED',
+    'SHORTLISTED',
+    'INTERVIEW_SCHEDULED',
+    'INTERVIEWED',
+    'HR_ROUND',
+    'OFFERED',
+    'ACCEPTED',
+    'REJECTED',
+] as const;
+
+type ApplicationState = typeof VALID_APPLICATION_STATES[number];
+
+/**
+ * POST /tnp/applications/:appId/status
+ * Allows T&P to update an application's state for students in their college.
+ */
+router.post('/applications/:appId/status', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { appId } = req.params;
+        const { status } = req.body as { status?: ApplicationState | string };
+
+        if (!status || !VALID_APPLICATION_STATES.includes(status as ApplicationState)) {
+            res.status(400).json({
+                error: `Invalid status. Must be one of: ${VALID_APPLICATION_STATES.join(', ')}`,
+            });
+            return;
+        }
+
+        const [profile] = await db
+            .select()
+            .from(schema.tnpProfiles)
+            .where(eq(schema.tnpProfiles.id, req.user!.id))
+            .limit(1);
+
+        if (!profile || !profile.collegeId) {
+            res.status(400).json({ error: 'College not configured yet' });
+            return;
+        }
+
+        const [app] = await db
+            .select({
+                id: schema.applications.id,
+                state: schema.applications.state,
+                studentCollegeId: schema.students.collegeId,
+            })
+            .from(schema.applications)
+            .innerJoin(schema.students, eq(schema.applications.studentId, schema.students.id))
+            .where(
+                and(
+                    eq(schema.applications.id, appId as string),
+                    eq(schema.students.collegeId, profile.collegeId),
+                ),
+            )
+            .limit(1);
+
+        if (!app) {
+            res.status(404).json({ error: 'Application not found for your college' });
+            return;
+        }
+
+        if (app.state === status) {
+            res.status(409).json({ error: `Application is already in state: ${status}` });
+            return;
+        }
+
+        await db
+            .update(schema.applications)
+            .set({ state: status as ApplicationState })
+            .where(eq(schema.applications.id, appId as string));
+
+        await db
+            .insert(schema.applicationStateLogs)
+            .values({
+                applicationId: appId as string,
+                oldState: app.state,
+                newState: status as ApplicationState,
+                changedBy: req.user!.id,
+            });
+
+        res.json({ message: `Application status updated to ${status}` });
+    } catch (err) {
+        console.error('TNP update application status error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 export default router;
