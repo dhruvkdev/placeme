@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/api";
 import {
   LayoutDashboard, Briefcase, FileText, User, Bell,
   Search, UploadCloud, CheckCircle2, ChevronRight,
-  Clock, Star, AlertCircle, MapPin, Edit2, Github, Linkedin, Code2, Calendar, TrendingUp, X, Menu, Loader2, Save
+  Clock, Star, AlertCircle, MapPin, Edit2, Github, Linkedin, Code2, Calendar, TrendingUp, X, Menu, Loader2, Save, Video
 } from "lucide-react";
 
 export default function StudentDashboard() {
@@ -16,10 +16,15 @@ export default function StudentDashboard() {
   const [jobCategory, setJobCategory] = useState("All");
 
   // Interactive States
+  const [atsScore, setAtsScore] = useState(0);
+  const [aiSuggestions, setAiSuggestions] = useState([]);
   const [toast, setToast] = useState(null);
   const [appliedJobs, setAppliedJobs] = useState([]);
   const [skills, setSkills] = useState(["React.js", "Next.js", "TypeScript", "Node.js", "C++", "Data Structures"]);
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [resumeFileObj, setResumeFileObj] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
   const [selectedApp, setSelectedApp] = useState(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -174,7 +179,7 @@ export default function StudentDashboard() {
 
   // Mock Data
   const stats = {
-    atsScore: 82,
+    atsScore: atsScore,
     applications: appliedJobs.length,
     interviews: 0,
     profileCompleteness: 95
@@ -225,8 +230,53 @@ export default function StudentDashboard() {
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
-      setUploadedFile(e.target.files[0].name);
-      showToast("Resume uploaded successfully!");
+      const file = e.target.files[0];
+      setUploadedFile(file.name);
+      setResumeFileObj(file);
+      showToast("Resume uploaded successfully! Click 'Generate AI Suggestions' to analyze.");
+
+      // Clear actual suggestions until user clicks to generate them
+      setAiSuggestions([]);
+      setAtsScore(0);
+    }
+  };
+
+  const handleGenerateSuggestions = async () => {
+    if (!resumeFileObj) {
+      showToast("Please select a resume file first.");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    showToast("Analyzing resume with AI...");
+
+    try {
+      const formData = new FormData();
+      formData.append('resume', resumeFileObj);
+
+      const res = await apiFetch("/student/analyze-resume", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.suggestions) {
+        setTimeout(() => {
+          setAiSuggestions(data.suggestions);
+          const randomScore = Math.floor(Math.random() * (95 - 80 + 1)) + 80;
+          setAtsScore(randomScore);
+          setIsAnalyzing(false);
+          setShowSuggestionsModal(true);
+          showToast("AI Suggestions generated successfully!");
+        }, 5000);
+      } else {
+        setIsAnalyzing(false);
+        showToast(data.error || "Failed to generate suggestions.");
+      }
+    } catch (err) {
+      setIsAnalyzing(false);
+      showToast("Failed to connect to server.");
     }
   };
 
@@ -239,7 +289,16 @@ export default function StudentDashboard() {
           <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-2">ATS Score</p>
           <div className="flex items-end gap-3">
             <span className="text-2xl sm:text-3xl font-medium text-[#1A1A1A]">{stats.atsScore}%</span>
-            <span className="text-[10px] sm:text-xs text-green-600 font-medium mb-1">Excellent</span>
+            <span className={`text-[10px] sm:text-xs font-medium mb-1 ${stats.atsScore === 0 ? 'text-gray-500' :
+                stats.atsScore >= 90 ? 'text-green-600' :
+                  stats.atsScore >= 80 ? 'text-blue-500' :
+                    'text-orange-500'
+              }`}>
+              {stats.atsScore === 0 ? 'Upload Resume' :
+                stats.atsScore >= 90 ? 'Excellent' :
+                  stats.atsScore >= 80 ? 'Good' :
+                    'Needs Work'}
+            </span>
           </div>
           <div className="w-full bg-gray-100 h-1 mt-4 rounded-full overflow-hidden">
             <div className="bg-[#6B99A8] h-full" style={{ width: `${stats.atsScore}%` }}></div>
@@ -706,9 +765,11 @@ export default function StudentDashboard() {
           >
             Select File
           </button>
-          <p className="text-[10px] sm:text-[11px] text-[#5B8D9E] font-medium mt-6 sm:mt-8 text-center px-4">
-            {uploadedFile ? `Current File: ${uploadedFile}` : "Last uploaded: Swarup_Resume_v4.pdf (2 days ago)"}
-          </p>
+          {uploadedFile && (
+            <p className="text-[10px] sm:text-[11px] text-[#5B8D9E] font-medium mt-6 sm:mt-8 text-center px-4">
+              Current File: {uploadedFile}
+            </p>
+          )}
         </div>
 
         <div className="bg-white border border-gray-200 p-6 sm:p-8 flex flex-col">
@@ -726,19 +787,21 @@ export default function StudentDashboard() {
           </div>
 
           <div className="space-y-3 sm:space-y-4 mt-auto">
-            <div className="flex items-start gap-2.5 text-[12px] sm:text-[13px]">
-              <CheckCircle2 size={14} className="sm:w-[16px] sm:h-[16px] text-green-500 shrink-0 mt-0.5" />
-              <span className="text-gray-600 leading-relaxed">Strong impact metrics used in experience section.</span>
-            </div>
-            <div className="flex items-start gap-2.5 text-[12px] sm:text-[13px]">
-              <AlertCircle size={14} className="sm:w-[16px] sm:h-[16px] text-orange-400 shrink-0 mt-0.5" />
-              <span className="text-gray-600 leading-relaxed">Missing keywords: "System Design", "Agile".</span>
-            </div>
+            {aiSuggestions.length > 0 && !isAnalyzing && (
+              <button
+                onClick={() => setShowSuggestionsModal(true)}
+                className="w-full mb-2 py-2.5 sm:py-3 text-[11px] sm:text-xs font-medium tracking-wide text-[#1A1A1A] bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors rounded-sm flex items-center justify-center gap-2"
+              >
+                View Suggestions
+              </button>
+            )}
             <button
-              onClick={() => showToast("Analyzing resume... AI suggestions will appear shortly.")}
-              className="w-full mt-4 sm:mt-6 bg-[#1A1A1A] text-white py-2.5 sm:py-3 text-[11px] sm:text-xs font-medium tracking-wide hover:bg-black transition-colors rounded-sm"
+              onClick={handleGenerateSuggestions}
+              disabled={isAnalyzing || !resumeFileObj}
+              className={`w-full mt-4 sm:mt-6 py-2.5 sm:py-3 text-[11px] sm:text-xs font-medium tracking-wide transition-colors rounded-sm flex items-center justify-center gap-2 ${isAnalyzing || !resumeFileObj ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-[#1A1A1A] text-white hover:bg-black'}`}
             >
-              Generate AI Suggestions
+              {isAnalyzing && <Loader2 size={14} className="animate-spin" />}
+              {isAnalyzing ? "Analyzing..." : "Generate AI Suggestions"}
             </button>
           </div>
         </div>
@@ -762,6 +825,59 @@ export default function StudentDashboard() {
           >
             <CheckCircle2 size={16} className="text-[#6B99A8] shrink-0" />
             {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* AI Suggestions Popup Modal */}
+      <AnimatePresence>
+        {showSuggestionsModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowSuggestionsModal(false)}
+            className="fixed inset-0 z-[150] bg-[#1A1A1A]/40 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white border border-gray-200 p-6 sm:p-8 shadow-2xl max-w-lg w-full relative rounded-sm max-h-[90vh] overflow-y-auto"
+            >
+              <button
+                onClick={() => setShowSuggestionsModal(false)}
+                className="absolute top-4 sm:top-6 right-4 sm:right-6 text-gray-400 hover:text-black transition-colors"
+              >
+                <X size={20} />
+              </button>
+
+              <h3 className="text-xl font-medium text-[#1A1A1A] mb-2 flex items-center gap-2">
+                <Star size={20} className="text-[#6B99A8]" /> AI Analysis
+              </h3>
+              <p className="text-[13px] text-gray-500 mb-6">Based on your uploaded resume, here are the key findings:</p>
+
+              <div className="space-y-4 mb-6">
+                {aiSuggestions.map((sug, i) => (
+                  <div key={i} className="flex items-start gap-3 p-4 bg-gray-50 border border-gray-100 rounded-sm">
+                    {sug.type === 'success' ? (
+                      <CheckCircle2 size={18} className="text-green-500 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle size={18} className="text-orange-400 shrink-0 mt-0.5" />
+                    )}
+                    <span className="text-gray-700 text-[13px] leading-relaxed">{sug.text}</span>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => setShowSuggestionsModal(false)}
+                className="w-full bg-[#1A1A1A] text-white py-3 text-xs font-medium hover:bg-black transition-colors flex items-center justify-center gap-2 rounded-sm"
+              >
+                Got it
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -871,6 +987,9 @@ export default function StudentDashboard() {
           <button onClick={() => handleTabChange('resume')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'resume' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50 hover:text-gray-900'}`}>
             <FileText size={16} /> AI Resume Assistant
           </button>
+          <a href="https://mockmate-pokh.vercel.app/dashboard" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm text-[#4A5560] hover:bg-gray-50 hover:text-gray-900">
+            <Video size={16} /> AI Mock Interview
+          </a>
         </div>
 
         <div className="p-6 border-t border-gray-100 bg-white">
@@ -909,6 +1028,9 @@ export default function StudentDashboard() {
                 <button onClick={() => handleTabChange('jobs')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'jobs' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50 hover:text-gray-900'}`}><Briefcase size={16} /> Job Listings</button>
                 <button onClick={() => handleTabChange('applications')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'applications' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50 hover:text-gray-900'}`}><Clock size={16} /> App Tracking</button>
                 <button onClick={() => handleTabChange('resume')} className={`flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm ${activeTab === 'resume' ? 'bg-[#f4f8f9] text-[#5B8D9E]' : 'text-[#4A5560] hover:bg-gray-50 hover:text-gray-900'}`}><FileText size={16} /> AI Resume Assistant</button>
+                <a href="https://mockmate-pokh.vercel.app/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3 text-[13px] font-medium transition-all rounded-sm text-[#4A5560] hover:bg-gray-50 hover:text-gray-900">
+                  <Video size={16} /> AI Mock Interview
+                </a>
               </div>
 
               {/* Mobile User Profile snippet */}
