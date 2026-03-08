@@ -382,9 +382,9 @@ router.put('/profile', authenticate, requireRole('STUDENT'), async (req: Request
                 branch,
                 graduationYear: parseInt(graduationYear),
                 state: 'PENDING_VERIFICATION',
-                github: github,
-                leetcode: leetcode,
-                linkedin: linkedin
+                github: github || null,
+                leetcode: leetcode || null,
+                linkedin: linkedin || null
             })
             .where(eq(schema.students.id, req.user!.id))
             .returning();
