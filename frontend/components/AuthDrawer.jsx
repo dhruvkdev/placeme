@@ -358,12 +358,68 @@ export default function AuthDrawer({ isOpen, onClose }) {
         {isLoading ? <Loader2 size={16} className="animate-spin" /> : "Sign In"}
       </button>
 
-      {selectedRole === "student" && (
+      {selectedRole !== "tnp" && (
         <p className="text-center text-xs text-gray-400 mt-3">
           Don't have an account?{" "}
           <button type="button" onClick={() => { setAuthMode("register"); setStep(2); setError(""); }} className="text-[#2C6E8F] hover:underline font-medium">Register</button>
         </p>
       )}
+    </form>
+  );
+
+  // ── RECRUITER REGISTRATION (Email + Password) ─────
+  const renderRecruiterRegistration = () => (
+    <form onSubmit={handleNextStep} className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <p className="text-sm text-gray-500 mb-4">Create your recruiter account</p>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1.5">Work Email</label>
+        <div className="relative">
+          <Mail className="absolute left-3 top-3 text-gray-400" size={16} />
+          <input
+            required
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full border border-gray-300 p-3 pl-10 text-sm focus:outline-none focus:border-[#2C6E8F] focus:ring-1 focus:ring-[#2C6E8F]/20 transition-all"
+            placeholder="you@company.com"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1.5">Password</label>
+        <div className="relative">
+          <Lock className="absolute left-3 top-3 text-gray-400" size={16} />
+          <input
+            required
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full border border-gray-300 p-3 pl-10 text-sm focus:outline-none focus:border-[#2C6E8F] focus:ring-1 focus:ring-[#2C6E8F]/20 transition-all"
+            placeholder="At least 6 characters"
+          />
+        </div>
+      </div>
+
+      {error && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 px-4 py-2.5 rounded-sm">
+          <AlertCircle size={14} />{error}
+        </motion.div>
+      )}
+
+      <button
+        type="submit"
+        disabled={isLoading}
+        className="w-full bg-[#1A1A1A] text-white p-3 text-sm font-medium hover:bg-black transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+      >
+        {isLoading ? <Loader2 size={16} className="animate-spin" /> : "Verify Email"}
+      </button>
+
+      <p className="text-center text-xs text-gray-400 mt-3">
+        Already have an account?{" "}
+        <button type="button" onClick={() => { setAuthMode("login"); setStep(2); setError(""); }} className="text-[#2C6E8F] hover:underline font-medium">Sign in</button>
+      </p>
     </form>
   );
 
@@ -501,8 +557,13 @@ export default function AuthDrawer({ isOpen, onClose }) {
     if (authMode === "login" && step === 2) return renderLoginForm();
 
     if (authMode === "register") {
-      if (step === 2) return renderStudentRegistration();
-      if (step === 3) return renderOtpStep();
+      if (selectedRole === "student") {
+        if (step === 2) return renderStudentRegistration();
+        if (step === 3) return renderOtpStep();
+      } else if (selectedRole === "company") {
+        if (step === 2) return renderRecruiterRegistration();
+        if (step === 3) return renderOtpStep();
+      }
     }
 
     return renderLoginForm();
@@ -570,10 +631,18 @@ export default function AuthDrawer({ isOpen, onClose }) {
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-gray-100 text-center">
+            <div className="px-6 py-4 border-t border-gray-100 text-center space-y-2">
               <p className="text-[11px] text-gray-400">
                 By continuing, you agree to PlaceMe's Terms of Service
               </p>
+              <div className="flex justify-center gap-4">
+                <a 
+                  href="/dashboard/admin" 
+                  className="text-[11px] text-[#2C6E8F] hover:underline font-medium flex items-center gap-1"
+                >
+                  <Lock size={10} /> Admin Login
+                </a>
+              </div>
             </div>
           </motion.div>
         </>
