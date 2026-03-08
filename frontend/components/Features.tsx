@@ -7,9 +7,7 @@ import AuthDrawer from "./AuthDrawer"; // Adjust the import path as needed
 // Mock Placeme Logo to match the screenshot
 const PlacemeLogo = ({ className = "", textClass = "text-gray-900" }) => (
   <div className={`flex items-center gap-1.5 ${className}`}>
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M5 20V4H9L15 15V4H19V20H15L9 9V20H5Z" fill="currentColor" className="transform -skew-x-12" />
-    </svg>
+    <img src="/favicon.ico" width="18" height="18" alt="Placeme Logo" />
     <span className={`font-bold text-[13px] tracking-wide ${textClass}`}>PLACEME</span>
   </div>
 );

@@ -135,6 +135,15 @@ export default function Hero() {
                     className="object-contain w-full max-w-[90px] md:max-w-[160px] h-[40px] md:h-[60px]"
                   />
                 </div>
+                <div className="flex flex-col items-center justify-center opacity-80 border-r border-[#2C6E8F]/40 md:border-none py-4 md:py-0 px-2">
+                  <Image
+                    src="/nitslogo-removebg-preview.png"
+                    alt="NIT Silchar"
+                    width={160}
+                    height={60}
+                    className="object-contain w-full max-w-[90px] md:max-w-[160px] h-[40px] md:h-[60px]"
+                  />
+                </div>
                 <div className="flex flex-col items-center justify-center opacity-80 py-4 md:py-0 px-2">
                   <Image
                     src="/nita-removebg-preview.png"
