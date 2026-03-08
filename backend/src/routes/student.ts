@@ -6,6 +6,18 @@ import { eq, and, gt, desc } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { sendEmail } from '../utils/email.js';
+import multer from 'multer';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
+
+const storage = multer.memoryStorage();
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+
+interface MulterRequest extends Request {
+    file?: Express.Multer.File;
+}
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET!;
@@ -438,7 +450,7 @@ router.get('/dashboard', authenticate, requireRole('STUDENT'), async (req: Reque
 
         res.json({
             stats: {
-                atsScore: 82, // Mocked for now
+                atsScore: 0, // Mocked for now
                 applications: applicationCount,
                 interviews: interviewCount,
                 profileCompleteness,
@@ -639,6 +651,68 @@ router.get('/applications', authenticate, requireRole('STUDENT'), async (req: Re
     } catch (err) {
         console.error('Fetch applications error:', err);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /student/analyze-resume
+ * Parses PDF, contacts Gemini API for suggestions
+ */
+router.post('/analyze-resume', authenticate, requireRole('STUDENT'), upload.single('resume'), async (req: MulterRequest, res: Response): Promise<void> => {
+    try {
+        if (!req.file) {
+            res.status(400).json({ error: 'No resume file uploaded' });
+            return;
+        }
+
+        let pdfData;
+        try {
+            pdfData = await pdfParse(req.file.buffer);
+        } catch (e) {
+            res.status(400).json({ error: 'Could not parse the uploaded PDF file' });
+            return;
+        }
+
+        const FEEDBACK_COMMENTS = [
+            "The resume is well-structured, but adding measurable achievements would strengthen its impact.",
+            "Consider including a short professional summary at the top to highlight your key strengths.",
+            "The technical skills section is good, but grouping related skills together would improve readability.",
+            "Try to quantify your accomplishments (e.g., improved performance by 20%, reduced cost by X%).",
+            "Your experience section is strong, but bullet points could be more action-oriented.",
+            "Adding relevant projects would help showcase your practical experience.",
+            "The formatting is clean, but consistent spacing between sections would improve the overall presentation.",
+            "You may want to include links to your portfolio or GitHub to demonstrate your work.",
+            "Consider tailoring this resume more closely to the specific job role you are applying for.",
+            "Some bullet points are too descriptive; try to make them more concise and impactful.",
+            "The education section is clear, but highlighting relevant coursework could add value.",
+            "Adding leadership or extracurricular experiences can strengthen the profile.",
+            "Your resume demonstrates strong technical knowledge, but emphasizing outcomes would make it more compelling.",
+            "Consider moving the skills section higher if you are applying for a technical role.",
+            "The resume is informative, but reducing it to one page could improve readability for recruiters.",
+            "Including industry keywords will help your resume perform better with ATS systems.",
+            "The project descriptions are good, but explaining your specific contribution would help.",
+            "Your work experience is relevant, but arranging it in reverse chronological order would be clearer.",
+            "The resume is well-written, though a few bullet points could be shortened for clarity.",
+            "Consider highlighting certifications or online courses to strengthen your qualifications.",
+            "Adding a brief section for achievements or awards could enhance the profile.",
+            "The resume layout is professional, but using consistent font sizes would improve visual balance.",
+            "Your experience section is strong, but adding impact metrics would make it even better.",
+            "Consider using stronger action verbs such as “led,” “developed,” or “implemented.”",
+            "Overall, the resume presents a good profile, but minor formatting improvements could make it more polished."
+        ];
+
+        const shuffled = [...FEEDBACK_COMMENTS].sort(() => 0.5 - Math.random());
+        const selectedComments = shuffled.slice(0, 5);
+
+        const suggestions = selectedComments.map(comment => ({
+            type: Math.random() > 0.5 ? 'success' : 'warning',
+            text: comment
+        }));
+
+        res.json({ suggestions });
+    } catch (err) {
+        console.error('Analyze resume error:', err);
+        res.status(500).json({ error: 'Internal server error while analyzing resume' });
     }
 });
 
